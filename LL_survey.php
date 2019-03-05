@@ -298,9 +298,10 @@ class LL_survey
   // - text
   // - type
   // - extra
+  // - reuse_extra
   // - position
-  static function db_add_question($survey_id, $text, $type, $extra, $position) { global $wpdb; return self::_db_insert(self::table_questions, ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'position' => $position]); }
-  static function db_update_question($question_id, $text, $type, $extra, $position) { return self::_db_update(self::table_questions, ['text' => $text, 'type' => $type, 'extra' => $extra, 'position' => $position], ['id' => $question_id]); }
+  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $position) { global $wpdb; return self::_db_insert(self::table_questions, ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position]); }
+  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_update(self::table_questions, ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position], ['id' => $question_id]); }
   static function db_delete_question($question_id) { return self::_db_delete(self::table_questions, ['id' => $question_id]); }
   static function db_get_questions_by_survey($survey_id) { return self::_db_select(self::table_questions, [['*']], ['survey' => $survey_id], ['position' => 'ASC']); }
 
@@ -328,9 +329,11 @@ class LL_survey
         `text` text NOT NULL,
         `type` varchar(20) NOT NULL,
         `extra` TEXT NULL DEFAULT NULL,
+        `reuse_extra` int(10) UNSIGNED NULL DEFAULT NULL,
         `position` int(10) UNSIGNED NOT NULL,
         PRIMARY KEY (`id`),
-        FOREIGN KEY (`survey`) REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_surveys) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+        FOREIGN KEY (`survey`) REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_surveys) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+        FOREIGN KEY (`reuse_extra`) REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_questions) . ' (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
       ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
 
     $r[] = self::table_answers . ' : ' . ($wpdb->query('
@@ -525,8 +528,12 @@ class LL_survey
                   flex: 1;
                   display: inline-block;
                 }
-                #<?=self::_?>_questions_div > div > div input, #<?=self::_?>_questions_div > div > div textarea {
+                #<?=self::_?>_questions_div > div > div > *, #<?=self::_?>_questions_div .extra_div > textarea {
                   width: 100%;
+                }
+                #<?=self::_?>_questions_div .extra_div > textarea {
+                  background: linear-gradient(white 1px, transparent 1px) 0 0 / auto 100% content-box, linear-gradient(#CCC 1px, transparent 1px) 0 0 / auto 19px content-box, white;
+                  resize: none;
                 }
                 #<?=self::_?>_questions_div .dashicons {
                   color: #ccc;
@@ -536,21 +543,18 @@ class LL_survey
                   width: 36px;
                   height: auto;
                 }
-                #<?=self::_?>_questions_div input {
+                #<?=self::_?>_questions_div input[type="text"] {
                   height: 28px;
                 }
               </style>
               <div id="<?=self::_?>_questions_div">
 <?php
-        $questions = self::db_get_questions_by_survey($survey_id);
-        $i = 0;
-        foreach ($questions as $question) {
+        function print_question_html($i, $question) {
           $t = $question['type'];
-          $e = in_array($t, ['select', 'multiselect']);
 ?>
-                <div>
+                <div<?=is_null($question) ? ' id="' . self::_ . '_add_question_template"' : ''?>>
                   <input type="hidden" name="q_order_<?=$i?>" value="<?=$i?>" />
-                  <input type="hidden" name="q_id_<?=$i?>" value="<?=$question['id']?>" />
+                  <input type="hidden" name="q_id_<?=$i?>" value="<?=$question['id'] ?? ''?>" />
                   <span class="dashicons dashicons-sort"></span>
                   <select name="q_type_<?=$i?>" data-no="<?=$i?>">
                     <option value="text" <?=$t == 'text' ? 'selected' : ''?>><?=__('Text', 'LL_survey')?></option>
@@ -559,13 +563,20 @@ class LL_survey
                     <option value="multiselect" <?=$t == 'multiselect' ? 'selected' : ''?>><?=__('Mehrfachauswahl', 'LL_survey')?></option>
                   </select>
                   <div>
-                    <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text']?>" />
-                    <textarea name="q_extra_<?=$i?>" <?=$e ? '' : 'style="display: none;"'?> rows="3" placeholder="Option 1
-Option 2
-..."></textarea>
+                    <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text'] ?? ''?>" />
+                    <div class="extra_div" style="display: none;">
+                      <textarea name="q_extra_<?=$i?>" rows="1" placeholder="Option 1..."><?=$question['extra'] ?? ''?></textarea>
+                      <label><input type="checkbox" name="q_reuse_extra_<?=$i?>" <?=is_null($question['reuse_extra']) ? '' : 'checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
+                    </div>
                   </div>
                 </div>
 <?php
+        }
+        $questions = self::db_get_questions_by_survey($survey_id);
+        $i = 0;
+        foreach ($questions as $question) {
+          $t = $question['type'];
+          print_question_html($i, $question);
           ++$i;
         }
 ?>
@@ -575,23 +586,9 @@ Option 2
                 <?=__('Leere das Textfeld einer Frage um sie (beim Speichern) zu löschen.', 'LL_survey')?>
               </p>
               <div style="display: none">
-                <div id="<?=self::_?>_add_question_template">
-                  <input type="hidden" name="q_order_" />
-                  <input type="hidden" name="q_id_" value="-1" />
-                  <span class="dashicons dashicons-sort"></span>
-                  <select name="q_type_" data-no="">
-                    <option value="text"><?=__('Text', 'LL_survey')?></option>
-                    <option value="check"><?=__('Check', 'LL_survey')?></option>
-                    <option value="select"><?=__('Auswahl', 'LL_survey')?></option>
-                    <option value="multiselect"><?=__('Mehrfachauswahl', 'LL_survey')?></option>
-                  </select>
-                  <div>
-                    <input type="text" name="q_text_" placeholder="<?=__('Was willst du wissen?')?>" value="" />
-                    <textarea name="q_extra_" style="display: none;" rows="3" placeholder="Option 1
-Option 2
-..."></textarea>
-                  </div>
-                </div>
+<?php
+        print_question_html('', null);
+?>
               </div>
               <p>
                 <button id="<?=self::_?>_add_question_btn" class="button" type="button"><?=__('Frage hinzufügen', 'LL_survey')?></button>
@@ -609,7 +606,7 @@ Option 2
           var jq_questions_div = jQuery(questions_div);
           var template = document.querySelector('#<?=self::_?>_add_question_template');
           var add_question_btn = document.querySelector('#<?=self::_?>_add_question_btn');
-          function sort() {
+          function make_sortable() {
             jq_questions_div.sortable({
               axis: 'y',
               containment: 'parent',
@@ -621,38 +618,53 @@ Option 2
             });
             jq_questions_div.disableSelection();
           }
-          function show_hide_extra(type_tag) {
-            var textarea = type_tag.parentNode.querySelector('textarea');
-            switch (type_tag.value) {
-              case 'select':
-              case 'multiselect':
-                console.log('type = select/multiselect');
-                textarea.style.display = '';
-                break;
-              default:
-                console.log('type = other');
-                textarea.style.display = 'none';
-                break;
+          function on_select_type_show_hide_extra_div() {
+            var select_type = this;
+            var extra_div = select_type.parentNode.querySelector('.extra_div');
+            extra_div.style.display = ['select', 'multiselect'].includes(select_type.value) ? '' : 'none';
+            jQuery(extra_div.querySelector('[name^="q_extra_"]')).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
+          }
+          function on_input_text_update_extra_rows_and_show_hide_extra_checkbox() {
+            var textarea_extra = this;
+            var div_extra = textarea_extra.parentNode;
+            textarea_extra.rows = Math.max(1, textarea_extra.value.split("\n").length);
+
+            var checkbox = div_extra.querySelector('[name^="q_reuse_extra_"]').parentNode;
+            if (textarea_extra.value.length === 0) {
+              checkbox.style.display = '';
+            }
+            else {
+              checkbox.style.display = 'none';
+              checkbox.checked = false;
             }
           }
-          jQuery(questions_div.querySelectorAll('select')).change(function() {
-            show_hide_extra(this);
-          });
+          function on_check_reuse_show_hide_extra_textbox() {
+            var checkbox_reuse_extra = this;
+            var textarea = checkbox_reuse_extra.parentNode.parentNode.querySelector('[name^="q_extra_"]');
+            textarea.style.display = checkbox_reuse_extra.checked ? 'none' : '';
+          }
+          jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
+          jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_update_extra_rows_and_show_hide_extra_checkbox).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
+          jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox).each(on_check_reuse_show_hide_extra_textbox);
           jQuery(add_question_btn).click(function() {
             var t_clone = template.cloneNode(true);
+            var i = jq_questions_div.children('div').length;
             t_clone.id = '';
-            var i = jq_questions_div.children('p').length;
             t_clone.querySelector('[name="q_order_"]').value = i;
             t_clone.querySelector('[name="q_order_"]').name += i;
             t_clone.querySelector('[name="q_id_"]').name += i;
             t_clone.querySelector('[name="q_type_"]').name += i;
             t_clone.querySelector('[name="q_text_"]').name += i;
             t_clone.querySelector('[name="q_extra_"]').name += i;
+            t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
+            jQuery(t_clone.querySelector('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
+            jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_update_extra_rows_and_show_hide_extra_checkbox).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
+            jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox).each(on_check_reuse_show_hide_extra_textbox);
             questions_div.appendChild(t_clone);
 
-            sort();
+            make_sortable();
           });
-          sort();
+          make_sortable();
         });
       </script>
 
@@ -695,33 +707,57 @@ Option 2
           'end' => $_POST['end'] ?: null]);
         self::message(__('Umfragedaten aktualisiert.', 'LL_survey'));
 
+        $questions = [];
         $questions_updated = 0;
         $questions_added = 0;
+        $questions_deleted = 0;
+        $questions_not_added = 0;
         $i = 0;
         while (isset($_POST['q_id_' . $i])) {
-          if ($_POST['q_id_' . $i] != '-1') {
-            if (!empty(trim($_POST['q_text_' . $i]))) {
-              $extra = null;
-              self::db_update_question($_POST['q_id_' . $i], trim($_POST['q_text_' . $i]), $_POST['q_type_' . $i], $extra, $_POST['q_order_' . $i]);
+          $question = [];
+          $question['id'] = $_POST['q_id_' . $i] ?: null;
+          $question['text'] = trim($_POST['q_text_' . $i]);
+          $question['type'] = $_POST['q_type_' . $i];
+          $is_select = in_array($question['type'], ['select', 'multiselect']);
+          $question['extra'] = $is_select ? $_POST['q_extra_' . $i] ?: null : null;
+          $question['reuse_extra'] = $is_select && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
+          if (!empty($question['text']) || $question['reuse_extra']) {
+            if (!is_null($question['id'])) {
+              ++$questions_updated;
             }
             else {
-              self::db_delete_question($_POST['q_id_' . $i]);
+              ++$questions_added;
             }
-            $questions_updated++;
+            $questions[intval($_POST['q_order_' . $i])] = $question;
           }
-          else if (!empty(trim($_POST['q_text_' . $i]))) {
-            $extra = null;
-            self::db_add_question($survey_id, trim($_POST['q_text_' . $i]), $_POST['q_type_' . $i], $extra, $_POST['q_order_' . $i]);
-            $questions_added++;
+          else {
+            if (!is_null($question['id'])) {
+              self::db_delete_question($question['id']);
+              ++$questions_deleted;
+            }
+            else {
+              ++$questions_not_added;
+            }
           }
           ++$i;
         }
-        if ($questions_updated > 0) {
-          self::message(sprintf(__('%d Frage(n) aktualisiert'), $questions_updated));
+        $i = 0;
+        ksort($questions);
+        $prev_question_id = null;
+        foreach ($questions as $question) {
+          if (!is_null($question['id'])) {
+            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_question_id : null, $i);
+            $prev_question_id = $question['id'];
+          }
+          else {
+            $prev_question_id = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_question_id : null, $i);
+          }
+          ++$i;
         }
-        if ($questions_added > 0) {
-          self::message(sprintf(__('%d neue Frage(n) hinzugefügt'), $questions_added));
-        }
+        if ($questions_updated > 0) self::message(sprintf(__('%d Frage(n) aktualisiert', 'LL_survey'), $questions_updated));
+        if ($questions_added > 0) self::message(sprintf(__('%d neue Frage(n) hinzugefügt', 'LL_survey'), $questions_added));
+        if ($questions_deleted > 0) self::message(sprintf(__('%d Frage(n) gelöscht', 'LL_survey'), $questions_deleted));
+        if ($questions_not_added > 0) self::message(sprintf(__('%d neue leere Frage(n) ignoriert', 'LL_survey'), $questions_not_added));
 
         wp_redirect(self::admin_url() . self::admin_page_survey_edit . $survey_id);
         exit;
