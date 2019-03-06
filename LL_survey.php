@@ -582,7 +582,7 @@ class LL_survey
 ?>
               </div>
               <p class="description">
-                <?=sprintf(__('Nutze %s um die Fragen per drag \'n drop zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
+                <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
                 <?=__('Leere das Textfeld einer Frage um sie (beim Speichern) zu löschen.', 'LL_survey')?>
               </p>
               <div style="display: none">
@@ -621,7 +621,14 @@ class LL_survey
           function on_select_type_show_hide_extra_div() {
             var select_type = this;
             var extra_div = select_type.parentNode.querySelector('.extra_div');
-            extra_div.style.display = ['select', 'multiselect'].includes(select_type.value) ? '' : 'none';
+            var reuse_extra_checkbox = extra_div.querySelector('[name^="q_reuse_extra"]');
+            if (['select', 'multiselect'].includes(select_type.value)) {
+              extra_div.style.display = '';
+            }
+            else {
+              extra_div.style.display = 'none';
+              reuse_extra_checkbox.checked = false;
+            }
             jQuery(extra_div.querySelector('[name^="q_extra_"]')).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
           }
           function on_input_text_update_extra_rows_and_show_hide_extra_checkbox() {
@@ -646,9 +653,12 @@ class LL_survey
           jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
           jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_update_extra_rows_and_show_hide_extra_checkbox).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
           jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox).each(on_check_reuse_show_hide_extra_textbox);
+
           jQuery(add_question_btn).click(function() {
             var t_clone = template.cloneNode(true);
-            var i = jq_questions_div.children('div').length;
+            var question_divs = jq_questions_div.children('div');
+            var i = question_divs.length;
+
             t_clone.id = '';
             t_clone.querySelector('[name="q_order_"]').value = i;
             t_clone.querySelector('[name="q_order_"]').name += i;
@@ -657,9 +667,17 @@ class LL_survey
             t_clone.querySelector('[name="q_text_"]').name += i;
             t_clone.querySelector('[name="q_extra_"]').name += i;
             t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
+
+            if (i > 0) {
+              var last = question_divs.last()[0];
+              t_clone.querySelector('[name^="q_type_"]').value = last.querySelector('[name^="q_type_"]').value;
+              t_clone.querySelector('[name^="q_reuse_extra_"]').checked = last.querySelector('[name^="q_reuse_extra_"]').checked;
+            }
+
             jQuery(t_clone.querySelector('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
             jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_update_extra_rows_and_show_hide_extra_checkbox).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
             jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox).each(on_check_reuse_show_hide_extra_textbox);
+
             questions_div.appendChild(t_clone);
 
             make_sortable();
@@ -743,14 +761,16 @@ class LL_survey
         }
         $i = 0;
         ksort($questions);
-        $prev_question_id = null;
+        $prev_select_or_multiselect_id = null;
         foreach ($questions as $question) {
-          if (!is_null($question['id'])) {
-            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_question_id : null, $i);
-            $prev_question_id = $question['id'];
+          if (is_null($question['id'])) {
+            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_select_or_multiselect_id : null, $i);
           }
           else {
-            $prev_question_id = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_question_id : null, $i);
+            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_select_or_multiselect_id : null, $i);
+          }
+          if (in_array($question['type'], ['select', 'multiselect'])) {
+            $prev_select_or_multiselect_id = $question['id'];
           }
           ++$i;
         }
