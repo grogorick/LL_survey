@@ -36,6 +36,15 @@ class LL_survey
   const shortcode_TEST                      = ['code'    => 'LL_survey_TEST',
                                                'html'    => '[shortcode_TEST attr=""]'];
 
+  const q_type_text = 'text';
+  const q_type_check = 'check';
+  const q_type_select = 'select';
+  const q_type_multiselect = 'multiselect';
+
+  const q_types_with_extra_singleline = [self::q_type_text];
+  const q_types_with_extra_multiline = [self::q_type_select, self::q_type_multiselect];
+  const q_types_with_extra = [self::q_type_text, self::q_type_select, self::q_type_multiselect];
+
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
@@ -528,7 +537,7 @@ class LL_survey
                   flex: 1;
                   display: inline-block;
                 }
-                #<?=self::_?>_questions_div > div > div > *, #<?=self::_?>_questions_div .extra_div > textarea {
+                #<?=self::_?>_questions_div > div > div > *, #<?=self::_?>_questions_div .extra_div > input[type="text"], #<?=self::_?>_questions_div .extra_div > textarea {
                   width: 100%;
                 }
                 #<?=self::_?>_questions_div .extra_div > textarea {
@@ -557,15 +566,16 @@ class LL_survey
                   <input type="hidden" name="q_id_<?=$i?>" value="<?=$question['id'] ?? ''?>" />
                   <span class="dashicons dashicons-sort"></span>
                   <select name="q_type_<?=$i?>" data-no="<?=$i?>">
-                    <option value="text" <?=$t == 'text' ? 'selected' : ''?>><?=__('Text', 'LL_survey')?></option>
-                    <option value="check" <?=$t == 'check' ? 'selected' : ''?>><?=__('Check', 'LL_survey')?></option>
-                    <option value="select" <?=$t == 'select' ? 'selected' : ''?>><?=__('Auswahl', 'LL_survey')?></option>
-                    <option value="multiselect" <?=$t == 'multiselect' ? 'selected' : ''?>><?=__('Mehrfachauswahl', 'LL_survey')?></option>
+                    <option value="<?=self::q_type_text?>" <?=$t == self::q_type_text ? 'selected' : ''?>><?=__('Text', 'LL_survey')?></option>
+                    <option value="<?=self::q_type_check?>" <?=$t == self::q_type_check ? 'selected' : ''?>><?=__('Check', 'LL_survey')?></option>
+                    <option value="<?=self::q_type_select?>" <?=$t == self::q_type_select ? 'selected' : ''?>><?=__('Auswahl', 'LL_survey')?></option>
+                    <option value="<?=self::q_type_multiselect?>" <?=$t == self::q_type_multiselect ? 'selected' : ''?>><?=__('Mehrfachauswahl', 'LL_survey')?></option>
                   </select>
                   <div>
                     <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text'] ?? ''?>" />
                     <div class="extra_div" style="display: none;">
-                      <textarea name="q_extra_<?=$i?>" rows="1" placeholder="Option 1..."><?=$question['extra'] ?? ''?></textarea>
+                      <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=$question['extra'] ?? ''?>" />
+                      <textarea name="q_extra_multiline_<?=$i?>" rows="1" placeholder="<?=__('Option 1...')?>"><?=$question['extra'] ?? ''?></textarea>
                       <label><input type="checkbox" name="q_reuse_extra_<?=$i?>" <?=is_null($question['reuse_extra']) ? '' : 'checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
                     </div>
                   </div>
@@ -622,22 +632,21 @@ class LL_survey
             var select_type = this;
             var extra_div = select_type.parentNode.querySelector('.extra_div');
             var reuse_extra_checkbox = extra_div.querySelector('[name^="q_reuse_extra"]');
-            if (['select', 'multiselect'].includes(select_type.value)) {
+            if (['<?=implode("', '", self::q_types_with_extra)?>'].includes(select_type.value)) {
               extra_div.style.display = '';
             }
             else {
               extra_div.style.display = 'none';
               reuse_extra_checkbox.checked = false;
             }
-            jQuery(extra_div.querySelector('[name^="q_extra_"]')).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
+            jQuery(extra_div.querySelector('[name^="q_extra_multiline_"]')).each(on_input_extra_text_update_rows);
+            jQuery(extra_div.querySelector('[name^="q_extra_"]')).each(on_input_text_show_hide_reuse_extra_checkbox);
+            jQuery(extra_div.querySelector('[name^="q_reuse_extra_"]')).each(on_check_reuse_show_hide_extra_textbox);
           }
-          function on_input_text_update_extra_rows_and_show_hide_extra_checkbox() {
-            var textarea_extra = this;
-            var div_extra = textarea_extra.parentNode;
-            textarea_extra.rows = Math.max(1, textarea_extra.value.split("\n").length);
-
-            var checkbox = div_extra.querySelector('[name^="q_reuse_extra_"]').parentNode;
-            if (textarea_extra.value.length === 0) {
+          function on_input_text_show_hide_reuse_extra_checkbox() {
+            var text_input = this;
+            var checkbox = text_input.parentNode.querySelector('[name^="q_reuse_extra_"]').parentNode;
+            if (text_input.value.length === 0) {
               checkbox.style.display = '';
             }
             else {
@@ -645,14 +654,22 @@ class LL_survey
               checkbox.checked = false;
             }
           }
+          function on_input_extra_text_update_rows() {
+            var textarea_extra = this;
+            textarea_extra.rows = Math.max(1, textarea_extra.value.split("\n").length);
+          }
           function on_check_reuse_show_hide_extra_textbox() {
-            var checkbox_reuse_extra = this;
-            var textarea = checkbox_reuse_extra.parentNode.parentNode.querySelector('[name^="q_extra_"]');
-            textarea.style.display = checkbox_reuse_extra.checked ? 'none' : '';
+            var checkbox = this;
+            var select_type = checkbox.parentNode.parentNode.parentNode.parentNode.querySelector('[name^="q_type_"]');
+            var is_singleline = ['<?=implode("', '", self::q_types_with_extra_singleline)?>'].includes(select_type.value);
+            var is_multiline = ['<?=implode("', '", self::q_types_with_extra_multiline)?>'].includes(select_type.value);
+            checkbox.parentNode.parentNode.querySelector('[name^="q_extra_singleline_"]').style.display = (is_singleline && !checkbox.checked) ? '' : 'none';
+            checkbox.parentNode.parentNode.querySelector('[name^="q_extra_multiline_"]').style.display = (is_multiline && !checkbox.checked) ? '' : 'none';
           }
           jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
-          jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_update_extra_rows_and_show_hide_extra_checkbox).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
-          jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox).each(on_check_reuse_show_hide_extra_textbox);
+          jQuery(questions_div.querySelectorAll('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);//.each(on_input_extra_text_update_rows);
+          jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);//.each(on_input_text_show_hide_reuse_extra_checkbox);
+          jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox);//.each(on_check_reuse_show_hide_extra_textbox);
 
           jQuery(add_question_btn).click(function() {
             var t_clone = template.cloneNode(true);
@@ -665,7 +682,8 @@ class LL_survey
             t_clone.querySelector('[name="q_id_"]').name += i;
             t_clone.querySelector('[name="q_type_"]').name += i;
             t_clone.querySelector('[name="q_text_"]').name += i;
-            t_clone.querySelector('[name="q_extra_"]').name += i;
+            t_clone.querySelector('[name="q_extra_singleline_"]').name += i;
+            t_clone.querySelector('[name="q_extra_multiline_"]').name += i;
             t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
 
             if (i > 0) {
@@ -675,7 +693,8 @@ class LL_survey
             }
 
             jQuery(t_clone.querySelector('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
-            jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_update_extra_rows_and_show_hide_extra_checkbox).each(on_input_text_update_extra_rows_and_show_hide_extra_checkbox);
+            jQuery(t_clone.querySelector('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows).each(on_input_extra_text_update_rows);
+            jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox).each(on_input_text_show_hide_reuse_extra_checkbox);
             jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox).each(on_check_reuse_show_hide_extra_textbox);
 
             questions_div.appendChild(t_clone);
@@ -736,10 +755,15 @@ class LL_survey
           $question['id'] = $_POST['q_id_' . $i] ?: null;
           $question['text'] = trim($_POST['q_text_' . $i]);
           $question['type'] = $_POST['q_type_' . $i];
-          $is_select = in_array($question['type'], ['select', 'multiselect']);
-          $question['extra'] = $is_select ? $_POST['q_extra_' . $i] ?: null : null;
-          $question['reuse_extra'] = $is_select && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
-          if (!empty($question['text']) || $question['reuse_extra']) {
+          $can_have_singleline_extra = in_array($question['type'], self::q_types_with_extra_singleline);
+          $can_have_multiline_extra = in_array($question['type'], self::q_types_with_extra_multiline);
+          $question['extra'] = null;
+          if ($can_have_singleline_extra)
+            $question['extra'] = $_POST['q_extra_singleline_' . $i] ?: null;
+          if ($can_have_multiline_extra)
+            $question['extra'] = $_POST['q_extra_multiline_' . $i] ?: null;
+          $question['reuse_extra'] = ($can_have_singleline_extra || $can_have_multiline_extra) && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
+          if (!empty($question['text'])) {
             if (!is_null($question['id'])) {
               ++$questions_updated;
             }
@@ -761,16 +785,23 @@ class LL_survey
         }
         $i = 0;
         ksort($questions);
-        $prev_select_or_multiselect_id = null;
+        $previous_type = null;
+        $previous_id = null;
         foreach ($questions as $question) {
+          if ($previous_type !== $question['type']) {
+            $previous_id = null;
+          }
+
           if (is_null($question['id'])) {
-            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_select_or_multiselect_id : null, $i);
+            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $i);
           }
           else {
-            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $prev_select_or_multiselect_id : null, $i);
+            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $i);
           }
-          if (in_array($question['type'], ['select', 'multiselect'])) {
-            $prev_select_or_multiselect_id = $question['id'];
+
+          $previous_type = $question['type'];
+          if (!$question['reuse_extra']) {
+            $previous_id = $question['id'];
           }
           ++$i;
         }
