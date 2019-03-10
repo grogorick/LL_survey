@@ -54,6 +54,8 @@ class LL_survey
 
 	static function _($member_function) { return [self::_, $member_function]; }
 
+	static function db_($table) { global $wpdb; return $wpdb->prefix . $table; }
+
   static function pluginPath() { return plugin_dir_path(__FILE__); }
   static function admin_url() { return get_admin_url() . 'admin.php?page='; }
   static function json_url() { return get_rest_url() . self::_ . '/v1/'; }
@@ -154,137 +156,188 @@ class LL_survey
 
   static function escape_key($key)
   {
-    if (is_array($key) && count($key) == 1 && isset($key[0]))
-      return $key[0];
+    if (is_array($key)) {
+      if (count($key) == 1 && isset($key[0])) {
+        return $key[0];
+      }
+      if (count($key) > 1 && isset($key[0])) {
+        $ret = '';
+        if (isset($key['.'])) {
+          $ret .=  self::escape_key($key['.']) . '.';
+        }
+        $ret .= self::escape_key($key[0]);
+        if (isset($key['as'])) {
+          $ret .= ' AS ' . self::escape_key($key['as']);
+        }
+        return $ret;
+      }
+    }
+    if (strpos(strval($key), '`') !== false) {
+      return $key;
+    }
     return '`' . $key . '`';
   }
 
   static function escape_keys($keys)
   {
-    if (is_array($keys)) {
-      return array_map(function($key) {
-        return self::escape_key($key);
-      }, $keys);
-    }
-    return self::escape_key($keys);
+    return array_map(function($key) {
+      return self::escape_key($key);
+    }, $keys);
   }
 
   static function escape_value($value)
   {
-    return '"' . $value . '"';
+    if (is_null($value))
+      return 'NULL';
+    else if (is_array($value) && count($value) == 1 && isset($value[0]))
+      return $value[0];
+    else
+      return '"' . $value . '"';
   }
 
-  static function escape_values($values)
+  static function _sql_escape_values($values)
   {
-    if (is_array($values)) {
-      return array_map(function($val) {
-        return (!is_null($val)) ? self::escape_value($val) : 'NULL';
-      }, $values);
-    }
-    return self::escape_value($values);
+    return array_map(function($val) {
+      return self::escape_value($val);
+    }, $values);
   }
 
-  static function escape($assoc_array, $escape_keys_only = false)
+  static function _sql_escape($assoc_array, $escape_keys_only = false)
   {
     $ret = [];
-    foreach ($assoc_array as $key => $val) {
-      if ($escape_keys_only)
-        $value = $val;
-      else if (is_null($val))
-        $value = 'NULL';
-      else if (is_array($val) && count($val) == 1 && isset($val[0]))
-        $value = $val[0];
-      else
-        $value = self::escape_value($val);
-      $ret[self::escape_key($key)] = $value;
+    foreach ($assoc_array as $key => &$val) {
+      $ret[self::escape_key($key)] = $escape_keys_only ? $val : self::escape_value($val);
     }
     return $ret;
   }
 
-  static function build_where($where)
+  static function _sql_from($tables)
+  {
+    $ret = ' FROM ';
+    if (is_array($tables)) {
+      if (count($tables) == 1 && isset($tables[0])) {
+        $ret .= $tables[0];
+      }
+      else if (isset($tables['join']) || isset($tables['left join']) || isset($tables['right join']) || isset($tables['inner join'])) {
+        foreach(['join', 'left join', 'right join', 'inner join'] as $join_type) {
+          if (isset($tables[$join_type])) {
+            $join = ' ' . strtoupper($join_type) . ' ';
+            $on = $tables[$join_type];
+            unset($tables[$join_type]);
+            break;
+          }
+        }
+        $tables = self::escape_keys($tables);
+        $ret .= implode($join, $tables) . ' ON ' . $on;
+      }
+    }
+    else {
+      $ret .= self::escape_key($tables);
+    }
+    return $ret;
+  }
+
+  static function _sql_where($where)
   {
     if (empty($where)) {
       return '';
     }
     $ret = [];
     foreach ($where as $key => &$value) {
-      if (is_array($value)) {
-        if (isset($value[1])) {
-          $ret[] = self::escape_key($key) . ' ' . $value[0] . ' ' . self::escape_value($value[1]);
-        }
-        else {
-          $ret[] = self::escape_key($key) . ' ' . $value[0];
-        }
+      if (isset($value[1])) {
+        $ret[] = self::escape_key($key) . ' ' . $value[0] . ' ' . self::escape_value($value[1]);
       }
       else {
-        $ret[] = self::escape_key($key) . ' = ' . self::escape_value($value);
+        $ret[] = self::escape_key($key) . ' ' . $value[0];
       }
     }
     return ' WHERE ' . implode(' AND ', $ret);
   }
 
-  static function build_orderby($orderby)
+  static function _sql_orderby($orderby)
   {
     if (empty($orderby)) {
       return '';
     }
-    return self::array_zip(' ', self::escape($orderby, true), ', ', ' ORDER BY ');
+    return self::array_zip(' ', self::_sql_escape($orderby, true), ', ', ' ORDER BY ');
   }
 
-  static function _db_build_select($table, $what, $where, $orderby)
+  static function _sql_groupby($groupby)
   {
-    $what = self::escape_keys($what);
-    if (is_array($what)) {
-      $what = implode(', ', $what);
+    if (empty($groupby)) {
+      return '';
     }
-    $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . self::build_orderby($orderby) . ';';
+    return ' GROUP BY ' . implode(', ', self::escape_keys($groupby));
+  }
+
+  static function _sql_what($what)
+  {
+    if (empty($what)) {
+      return '';
+    }
+    return implode(', ', self::escape_keys($what));
+  }
+
+  static function _db_build_select($tables, $what, $where, $groupby, $orderby)
+  {
+    $sql = 'SELECT ' . self::_sql_what($what) . self::_sql_from($tables) . self::_sql_where($where) . self::_sql_groupby($groupby) . self::_sql_orderby($orderby) . ';';
     // self::message($sql);
     return $sql;
   }
 
   static function _db_insert($table, $data, $timestamp_key = null)
   {
-    $data = self::escape($data);
+    $data = self::_sql_escape($data);
     if (!is_null($timestamp_key))
       $data[self::escape_key($timestamp_key)] = 'NOW()';
     global $wpdb;
-    $sql = 'INSERT INTO ' . self::escape_key($wpdb->prefix . $table) . ' ( ' . implode(', ', array_keys($data)) . ' ) VALUES ( ' . implode(', ', array_values($data)) . ' );';
+    $sql = 'INSERT INTO ' . self::escape_key($table) . ' ( ' . implode(', ', array_keys($data)) . ' ) VALUES ( ' . implode(', ', array_values($data)) . ' );';
     // self::message($sql);
     if ($wpdb->query($sql))
-      return $wpdb->insert_id;
+      $result = $wpdb->insert_id;
     else
-      return false;
+      $result = false;
+    if ($wpdb->last_error) self::message('<i>(_db_insert)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
+    return $result;
   }
 
   static function _db_update($table, $data, $where, $timestamp_key = null)
   {
-    $data = self::escape($data);
+    $data = self::_sql_escape($data);
     if (!is_null($timestamp_key))
       $data[self::escape_key($timestamp_key)] = 'NOW()';
     global $wpdb;
-    $sql = 'UPDATE ' . self::escape_key($wpdb->prefix . $table) . ' SET ' . self::array_zip(' = ', $data, ', ') . self::build_where($where) . ';';
+    $sql = 'UPDATE ' . self::escape_key($table) . ' SET ' . self::array_zip(' = ', $data, ', ') . self::_sql_where($where) . ';';
     // self::message($sql);
-    return $wpdb->query($sql);
+    $result = $wpdb->query($sql);
+    if ($wpdb->last_error) self::message('<i>(_db_update)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
+    return $result;
   }
 
   static function _db_delete($table, $where)
   {
     global $wpdb;
-    $sql = 'DELETE FROM ' . self::escape_key($wpdb->prefix . $table) . self::build_where($where) . ';';
+    $sql = 'DELETE FROM ' . self::escape_key($table) . self::_sql_where($where) . ';';
     // self::message($sql);
-    return $wpdb->query($sql);
+    $result = $wpdb->query($sql);
+    if ($wpdb->last_error) self::message('<i>(_db_delete)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
+    return $result;
   }
 
-  static function _db_select($table, $what = [['*']], $where = [], $orderby = [])
+  static function _db_select($tables, $what = [['*']], $where = [], $groupby = [], $orderby = [])
   {
     global $wpdb;
-    return $wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $orderby), ARRAY_A);
+    $result = $wpdb->get_results(self::_db_build_select($tables, $what, $where, $groupby, $orderby), ARRAY_A);
+    if ($wpdb->last_error) self::message('<i>(_db_select)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
+    return $result;
   }
 
-  static function _db_select_row($table, $what = [['*']], $where = [])
+  static function _db_select_row($tables, $what = [['*']], $where = [], $groupby = [], $orderby = [])
   {
     global $wpdb;
-    return $wpdb->get_row(self::_db_build_select($wpdb->prefix . $table, $what, $where, []), ARRAY_A);
+    $result = $wpdb->get_row(self::_db_build_select($tables, $what, $where, $groupby, $orderby), ARRAY_A);
+    if ($wpdb->last_error) self::message('<i>(_db_select_row)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
+    return $result;
   }
 
 
@@ -295,11 +348,12 @@ class LL_survey
   // - preview
   // - start
   // - end
-  static function db_add_survey($name) { return self::_db_insert(self::table_surveys, ['name' => $name]); }
-  static function db_update_survey($survey_id, $data) { return self::_db_update(self::table_surveys, $data, ['id' => $survey_id]); }
-  static function db_get_surveys($what = [['*']]) { return self::_db_select(self::table_surveys, $what); }
-  static function db_get_survey_by_id($survey_id) { return self::_db_select_row(self::table_surveys, ['id', 'name', 'preview', ['`start` AS s'], ['`end` AS e'], ['DATE_FORMAT(start, "%Y-%m-%dT%H:%i") AS start'], ['DATE_FORMAT(end, "%Y-%m-%dT%H:%i") AS end']], ['id' => $survey_id]); }
-  static function db_delete_survey($survey_id) { return self::_db_delete(self::table_surveys, ['id' => $survey_id]); }
+  static function db_add_survey($title) { return self::_db_insert(self::db_(self::table_surveys), ['title' => $title]); }
+  static function db_update_survey($survey_id, $data) { return self::_db_update(self::db_(self::table_surveys), $data, ['id' => ['=', $survey_id]]); }
+  static function db_get_surveys($what = [['*']]) { return self::_db_select(self::db_(self::table_surveys), $what); }
+  static function db_get_surveys_with_count() { return self::_db_select([[self::db_(self::table_surveys), 'as' => 's'], [self::db_(self::table_questions), 'as' => 'q'], 'left join' => '`s`.`id` = `q`.`survey`'], [['.' => 's', 'id', 'as' => 'id'], ['.' => 's', 'title', 'as' => 'title'], ['.' => 's', 'preview', 'as' => 'preview'], ['.' => 's', 'start', 'as' => 'start'], ['.' => 's', 'end', 'as' => 'end'], [['COUNT(0)'], 'as' => 'num-questions']], [], [['.' => 's', 'id']]); }
+  static function db_get_survey_by_id($survey_id) { return self::_db_select_row(self::db_(self::table_surveys), ['id', 'title', 'preview', 'start', 'end', ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']], ['id' => ['=', $survey_id]]); }
+  static function db_delete_survey($survey_id) { return self::_db_delete(self::db_(self::table_surveys), ['id' => ['=', $survey_id]]); }
 
   // questions
   // - id
@@ -309,10 +363,10 @@ class LL_survey
   // - extra
   // - reuse_extra
   // - position
-  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $position) { global $wpdb; return self::_db_insert(self::table_questions, ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position]); }
-  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_update(self::table_questions, ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position], ['id' => $question_id]); }
-  static function db_delete_question($question_id) { return self::_db_delete(self::table_questions, ['id' => $question_id]); }
-  static function db_get_questions_by_survey($survey_id) { return self::_db_select(self::table_questions, [['*']], ['survey' => $survey_id], ['position' => 'ASC']); }
+  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position]); }
+  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_update(self::db_(self::table_questions), ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position], ['id' => ['=', $question_id]]); }
+  static function db_delete_question($question_id) { return self::_db_delete(self::db_(self::table_questions), ['id' => ['=', $question_id]]); }
+  static function db_get_questions_by_survey($survey_id) { return self::_db_select(self::db_(self::table_questions), [['*']], ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
 
 
 
@@ -321,18 +375,18 @@ class LL_survey
     global $wpdb;
     $r = [];
 
-    $r[] = self::table_surveys . ' : ' . ($wpdb->query('
-      CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_surveys) . ' (
+    $r[] = self::db_(self::table_surveys ). ' : ' . ($wpdb->query('
+      CREATE TABLE ' . self::escape_key(self::db_(self::table_surveys)) . ' (
         `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-        `name` varchar(200) NOT NULL,
+        `title` varchar(200) NOT NULL,
         `preview` tinyint(1) NOT NULL DEFAULT \'1\',
         `start` datetime DEFAULT NULL,
         `end` datetime DEFAULT NULL,
         PRIMARY KEY (`id`)
       ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
 
-    $r[] = self::table_questions . ' : ' . ($wpdb->query('
-      CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_questions) . ' (
+    $r[] = self::db_(self::table_questions ). ' : ' . ($wpdb->query('
+      CREATE TABLE ' . self::escape_key(self::db_(self::table_questions)) . ' (
         `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
         `survey` int(10) UNSIGNED NOT NULL,
         `text` text NOT NULL,
@@ -341,18 +395,18 @@ class LL_survey
         `reuse_extra` int(10) UNSIGNED NULL DEFAULT NULL,
         `position` int(10) UNSIGNED NOT NULL,
         PRIMARY KEY (`id`),
-        FOREIGN KEY (`survey`) REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_surveys) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-        FOREIGN KEY (`reuse_extra`) REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_questions) . ' (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
+        FOREIGN KEY (`survey`) REFERENCES ' . self::escape_key(self::db_(self::table_surveys)) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+        FOREIGN KEY (`reuse_extra`) REFERENCES ' . self::escape_key(self::db_(self::table_questions)) . ' (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
       ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
 
-    $r[] = self::table_answers . ' : ' . ($wpdb->query('
-      CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_answers) . ' (
+    $r[] = self::db_(self::table_answers ). ' : ' . ($wpdb->query('
+      CREATE TABLE ' . self::escape_key(self::db_(self::table_answers)) . ' (
         `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
         `question` int(10) UNSIGNED NOT NULL,
         `text` text NOT NULL,
         `time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (`id`),
-        FOREIGN KEY (`question`) REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_questions) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+        FOREIGN KEY (`question`) REFERENCES ' . self::escape_key(self::db_(self::table_questions)) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE
       ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
     
     self::message('Datenbank eingerichtet.<br /><p>- ' . implode('</p><p>- ', $r) . '</p>');
@@ -369,9 +423,9 @@ class LL_survey
   static function uninstall()
   {
     global $wpdb;
-    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_answers) . ';');
-    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_questions) . ';');
-    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_surveys) . ';');
+    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys(self::db_(self::table_answers)) . ';');
+    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys(self::db_(self::table_questions)) . ';');
+    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys(self::db_(self::table_surveys)) . ';');
 
     delete_option(self::option_msg);
     delete_option(self::option_test);
@@ -458,7 +512,7 @@ class LL_survey
           <tr>
             <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
             <td>
-              <input type="text" name="survey_name" placeholder="<?=__('Meine Umfrage', 'LL_survey')?>" class="regular-text" /> &nbsp;
+              <input type="text" name="survey_title" placeholder="<?=__('Meine Umfrage', 'LL_survey')?>" class="regular-text" /> &nbsp;
               <?php submit_button(__('Neue Umfrage anlegen', 'LL_survey'), 'primary', '', false); ?>
             </td>
           </tr>
@@ -471,11 +525,11 @@ class LL_survey
 
       <p>
         <?php
-        $surveys = self::db_get_surveys();
+        $surveys = self::db_get_surveys_with_count();
         $edit_url = self::admin_url() . self::admin_page_survey_edit;
         foreach ($surveys as &$survey) {
 ?>
-          <?=self::list_item?> <a href="<?=$edit_url . $survey['id']?>"><b><?=$survey['name']?></b></a><br />
+          #<?=$survey['id']?> <a href="<?=$edit_url . $survey['id']?>"><b><?=$survey['title']?></b></a><br />
           <?php
         }
 ?>
@@ -493,7 +547,7 @@ class LL_survey
           exit;
         }
 ?>
-      <h1><?=__('Umfragen', 'LL_survey')?> &gt; <?=$survey['name']?></h1>
+      <h1><?=__('Umfragen', 'LL_survey')?> &gt; #<?=$survey['id']?> <?=$survey['title']?></h1>
 
       <form method="post" action="admin-post.php">
         <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
@@ -503,15 +557,15 @@ class LL_survey
           <tr>
             <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
             <td>
-              <input type="text" name="name" value="<?=$survey['name']?>" style="width: 100%;" />
+              <input type="text" name="title" value="<?=$survey['title']?>" style="width: 100%;" />
             </td>
           </tr>
           <tr>
             <th scope="row"><?=__('Zeitraum', 'LL_survey')?></th>
             <td>
-              <input type="datetime-local" name="start" value="<?=$survey['start']?>" title="<?=__('Startzeitpunkt', 'LL_survey')?>" />
+              <input type="datetime-local" name="start" value="<?=$survey['start_T']?>" title="<?=__('Startzeitpunkt', 'LL_survey')?>" />
               &nbsp;&mdash;&nbsp;
-              <input type="datetime-local" name="end" value="<?=$survey['end']?>" title="<?=__('Endzeitpunkt', 'LL_survey')?>" />
+              <input type="datetime-local" name="end" value="<?=$survey['end_T']?>" title="<?=__('Endzeitpunkt', 'LL_survey')?>" />
               <p class="description">
                 <?=__('Kein Startzeitpunkt: ab sofort', 'LL_survey')?><br />
                 <?=__('Kein Endzeitpunkt: unbegrenze Dauer', 'LL_survey')?>
@@ -727,8 +781,8 @@ class LL_survey
   {
     if (!empty($_POST) && isset($_POST['_wpnonce'])) {
       if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_survey_add')) {
-        if (!empty($_POST['survey_name'])) {
-          $survey_id = self::db_add_survey(trim($_POST['survey_name']));
+        if (!empty($_POST['survey_title'])) {
+          $survey_id = self::db_add_survey(trim($_POST['survey_title']));
           self::message(__('Neue Umfrage angelegt.', 'LL_survey'));
           wp_redirect(self::admin_url() . self::admin_page_survey_edit . $survey_id);
           exit;
@@ -738,7 +792,7 @@ class LL_survey
       else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_survey_edit')) {
         $survey_id = $_POST['survey_id'];
         self::db_update_survey($survey_id, [
-          'name' => $_POST['name'] ?? 0,
+          'title' => $_POST['title'] ?? 0,
           'preview' => $_POST['preview'] ? 1 : 0,
           'start' => $_POST['start'] ?: null,
           'end' => $_POST['end'] ?: null]);
