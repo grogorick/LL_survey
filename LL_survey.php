@@ -523,17 +523,57 @@ class LL_survey
 
       <h1><?=__('Umfragen', 'LL_survey')?></h1>
 
-      <p>
+      <style>
+        table.<?=self::_?>_overview {
+          margin-top: 10px;
+          width: 100%;
+          border-collapse: collapse;
+        }
+        table.<?=self::_?>_overview a {
+          text-decoration: none;
+        }
+        table.<?=self::_?>_overview td[rowspan="2"] {
+          font-size: 200%;
+          color: #aaa;
+          width: 80px;
+        }
+        table.LL_survey_overview tr:nth-child(4n-3) td, table.LL_survey_overview tr:nth-child(4n-2) td {
+          background: #fff5;
+        }
+        table.LL_survey_overview tr:nth-child(2n-1) td:nth-child(2) {
+          padding-top: 10px;
+        }
+        table.LL_survey_overview tr:nth-child(2n) td {
+          padding-bottom: 10px;
+        }
+        table.<?=self::_?>_overview td.nostretch {
+          width: 1px;
+          white-space: nowrap;
+        }
+        table.<?=self::_?>_overview td > span {
+          padding: 0 20px;
+        }
+      </style>
+      <table class="<?=self::_?>_overview">
         <?php
         $surveys = self::db_get_surveys_with_count();
         $edit_url = self::admin_url() . self::admin_page_survey_edit;
         foreach ($surveys as &$survey) {
 ?>
-          #<?=$survey['id']?> <a href="<?=$edit_url . $survey['id']?>"><b><?=$survey['title']?></b></a><br />
-          <?php
+          <tr>
+            <td rowspan="2">#<?=$survey['id']?></td>
+            <td colspan="4"><a href="<?=$edit_url . $survey['id']?>"><b><?=$survey['title']?></b></a></td>
+          </tr>
+          <tr>
+            <td class="nostretch"><?=sprintf(__('%d Fragen', 'LL_survey'), $survey['num-questions'])?></td>
+            <td class="nostretch"><span>&middot;</span> <?=sprintf(__('%d Teilnehmer', 'LL_survey'), $survey['num-answers'])?></td>
+            <td class="nostretch"><span>&middot;</span> <?=$survey['start'] ?: '...'?> &mdash; <?=$survey['end'] ?: '...'?></td>
+            <td></td>
+          </tr>
+<?php
         }
 ?>
-      </p>
+      </table>
 <?php
       } break;
 
