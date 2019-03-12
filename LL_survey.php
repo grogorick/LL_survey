@@ -33,8 +33,8 @@ class LL_survey
   const admin_page_surveys                  = self::_ . '_surveys';
   const admin_page_survey_edit              = self::_ . '_surveys&edit=';
 
-  const shortcode_TEST                      = ['code'    => 'LL_survey_TEST',
-                                               'html'    => '[shortcode_TEST attr=""]'];
+  const shortcode_SURVEY                    = ['code'    => 'LL_SURVEY',
+                                               'html'    => '[LL_SURVEY [title | start | end] #&lt;id&gt;]'];
 
   const q_type_text = 'text';
   const q_type_check = 'check';
@@ -366,7 +366,7 @@ class LL_survey
   static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position]); }
   static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_update(self::db_(self::table_questions), ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position], ['id' => ['=', $question_id]]); }
   static function db_delete_question($question_id) { return self::_db_delete(self::db_(self::table_questions), ['id' => ['=', $question_id]]); }
-  static function db_get_questions_by_survey($survey_id) { return self::_db_select(self::db_(self::table_questions), [['*']], ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
+  static function db_get_questions_by_survey($survey_id, $what = [['*']]) { return self::_db_select(self::db_(self::table_questions), $what, ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
 
 
 
@@ -921,9 +921,182 @@ class LL_survey
 
 
 
-  static function shortcode_TEST($atts)
+  // surveys
+  // - id
+  // - name
+  // - preview
+  // - start
+  // - end
+  // questions
+  // - id
+  // - survey
+  // - text
+  // - type
+  // - extra
+  // - reuse_extra
+  // - position
+  static function shortcode_SURVEY($atts)
   {
-    return 'TEST';
+    $what = $survey_id = strtolower($atts[0]);
+    switch($what) {
+      case 'title':
+      case 'start':
+      case 'end':
+      case 'num-questions':
+        $survey_id = $atts[1];
+        break;
+      default:
+        $what = 'survey';
+    }
+    $survey_id = preg_filter('/^#?(\d+)$/', '$1', $survey_id);
+    $survey = self::db_get_survey_by_id($survey_id);
+
+    switch($what) {
+      case 'title':
+        return $survey['title'];
+      case 'start':
+        return $survey['start'];
+      case 'end':
+        return $survey['end'];
+      case 'num-questions':
+        return print_r(self::db_get_questions_by_survey($survey_id, [[['COUNT(0)'], 'as' => 'count']])[0]['count'], true);
+        break;
+      default:
+        $what = 'survey';
+    }
+
+    ob_start();
+?>
+    <div class="<?=self::_?>">
+<?php
+    if (!$survey['preview'] || is_user_logged_in()) {
+      $questions = self::db_get_questions_by_survey($survey_id);
+      $questions_by_id = [];
+      foreach ($questions as $q) {
+        $questions_by_id[$q['id']] = $q;
+      }
+      foreach ($questions as $idx => $question) {
+        $tag_id_value = 'q_' . $question['id'];
+        $tag_name = 'name="' . $tag_id_value . '"';
+        $tag_name_and_id = $tag_name . ' id="' . $tag_id_value . '"';
+        $is_first_in_reuse_chain = !$question['reuse_extra'] && count($questions) > ($idx + 1) && $questions[$idx + 1]['reuse_extra'];
+        $extra = ($question['reuse_extra'] ? $questions_by_id[$question['reuse_extra']] : $question)['extra'];
+        switch ($question['type']) {
+          case self::q_type_text:
+            ?>
+            <div>
+              <div class="<?=self::_?>_question"><?=$question['text']?></div>
+              <div class="<?=self::_?>_question_text">
+                <input type="text" <?=$tag_name_and_id?> />
+              </div>
+            </div>
+            <?php
+            break;
+
+          case self::q_type_check:
+            ?>
+            <div>
+              <div class="<?=self::_?>_question"><?=$question['text']?></div>
+              <div class="<?=self::_?>_question_check">
+                <input type="checkbox" <?=$tag_name_and_id?> /><label for="<?=$tag_id_value?>" data-on="Ja" data-off="Nein"></label>
+              </div>
+            </div>
+            <?php
+            break;
+
+          case self::q_type_select:
+            if ($is_first_in_reuse_chain) {
+              ?>
+              <div>
+                <div>Matrix</div>
+                <div class="<?= self::_ ?>_question_select_matrix_header">
+                  <?php
+                  foreach (explode("\n", $extra) as $option) {
+                    ?><span><?=$option?></span><?php
+                  }
+                  ?>
+                </div>
+              </div>
+              <?php
+            }
+            if ($question['reuse_extra'] || $is_first_in_reuse_chain) {
+              ?>
+              <div>
+                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
+                <div class="<?= self::_ ?>_question_select_matrix">
+                <?php
+                foreach (explode("\n", $extra) as $option) {
+                  ?><label><input type="radio" <?=$tag_name_and_id?> /></label><?php
+                }
+                ?>
+                </div>
+              </div>
+              <?php
+            }
+            else {
+              ?>
+              <div>
+                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
+                <div class="<?= self::_ ?>_question_select">
+                  <?php
+                  foreach (explode("\n", $extra) as $idx => $option) {
+                    $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
+                    ?><input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br /><?php
+                  }
+                  ?>
+                </div>
+              </div>
+              <?php
+            }
+            break;
+
+          case self::q_type_multiselect:
+            if ($is_first_in_reuse_chain) {
+              ?>
+              <div>
+                <div>Matrix</div>
+                <div class="<?= self::_ ?>_question_select_matrix_header">
+                  (noch nicht verfügbar)
+                </div>
+              </div>
+              <?php
+            }
+            if ($question['reuse_extra'] || $is_first_in_reuse_chain) {
+              ?>
+              <div>
+                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
+                <div class="<?= self::_ ?>_question_select_matrix">
+                  (noch nicht verfügbar)
+                </div>
+              </div>
+              <?php
+            }
+            else {
+              ?>
+              <div>
+                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
+                <div class="<?= self::_ ?>_question_select">
+                  <?php
+                  foreach (explode("\n", $extra) as $idx => $option) {
+                    $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
+                    $tag_name_and_id_with_idx = 'name="' . $tag_id_value_with_idx . '" id="' . $tag_id_value_with_idx . '"';
+                    ?><input type="checkbox" <?=$tag_name_and_id_with_idx?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br /><?php
+                  }
+                  ?>
+                </div>
+              </div>
+              <?php
+            }
+            break;
+        }
+      }
+//      print_r($survey);
+//      print_r($questions);
+    }
+?>
+    </div>
+<?php
+    return ob_get_clean();
   }
 
 
@@ -945,7 +1118,7 @@ class LL_survey
 
     self::hook_admin_menu();
 
-    add_shortcode(self::shortcode_TEST['code'], self::_('shortcode_TEST'));
+    add_shortcode(self::shortcode_SURVEY['code'], self::_('shortcode_SURVEY'));
 
     register_activation_hook(__FILE__, self::_('activate'));
     register_deactivation_hook(__FILE__, self::_('uninstall'));
