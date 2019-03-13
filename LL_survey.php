@@ -42,8 +42,7 @@ class LL_survey
   const q_type_multiselect = 'multiselect';
 
   const q_types_with_extra_singleline = [self::q_type_text];
-  const q_types_with_extra_multiline = [self::q_type_select, self::q_type_multiselect];
-  const q_types_with_extra = [self::q_type_text, self::q_type_select, self::q_type_multiselect];
+  const q_types_with_extra_multiline = [self::q_type_check, self::q_type_select, self::q_type_multiselect];
 
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
@@ -362,9 +361,10 @@ class LL_survey
   // - type
   // - extra
   // - reuse_extra
+  // - in_matrix
   // - position
-  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position]); }
-  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $position) { return self::_db_update(self::db_(self::table_questions), ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'position' => $position], ['id' => ['=', $question_id]]); }
+  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $in_matrix, $position) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'position' => $position]); }
+  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $in_matrix, $position) { return self::_db_update(self::db_(self::table_questions), ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'position' => $position], ['id' => ['=', $question_id]]); }
   static function db_delete_question($question_id) { return self::_db_delete(self::db_(self::table_questions), ['id' => ['=', $question_id]]); }
   static function db_get_questions_by_survey($survey_id, $what = [['*']]) { return self::_db_select(self::db_(self::table_questions), $what, ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
 
@@ -391,8 +391,9 @@ class LL_survey
         `survey` int(10) UNSIGNED NOT NULL,
         `text` text NOT NULL,
         `type` varchar(20) NOT NULL,
-        `extra` TEXT NULL DEFAULT NULL,
-        `reuse_extra` int(10) UNSIGNED NULL DEFAULT NULL,
+        `extra` text NULL,
+        `reuse_extra` int(10) UNSIGNED NULL,
+        `in_matrix` tinyint(1) NOT NULL,
         `position` int(10) UNSIGNED NOT NULL,
         PRIMARY KEY (`id`),
         FOREIGN KEY (`survey`) REFERENCES ' . self::escape_key(self::db_(self::table_surveys)) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -655,11 +656,11 @@ class LL_survey
         function print_question_html($i, $question) {
           $t = $question['type'];
 ?>
-                <div<?=is_null($question) ? ' id="' . self::_ . '_add_question_template"' : ''?>>
+                <div id="<?=is_null($question) ? self::_ . '_add_question_template' : ''?>">
                   <input type="hidden" name="q_order_<?=$i?>" value="<?=$i?>" />
                   <input type="hidden" name="q_id_<?=$i?>" value="<?=$question['id'] ?? ''?>" />
                   <span class="dashicons dashicons-sort"></span>
-                  <select name="q_type_<?=$i?>" data-no="<?=$i?>">
+                  <select name="q_type_<?=$i?>">
                     <option value="<?=self::q_type_text?>" <?=$t == self::q_type_text ? 'selected' : ''?>><?=__('Text', 'LL_survey')?></option>
                     <option value="<?=self::q_type_check?>" <?=$t == self::q_type_check ? 'selected' : ''?>><?=__('Check', 'LL_survey')?></option>
                     <option value="<?=self::q_type_select?>" <?=$t == self::q_type_select ? 'selected' : ''?>><?=__('Auswahl', 'LL_survey')?></option>
@@ -667,10 +668,13 @@ class LL_survey
                   </select>
                   <div>
                     <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text'] ?? ''?>" />
-                    <div class="extra_div" style="display: none;">
+                    <div class="extra_div">
                       <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=$question['extra'] ?? ''?>" />
                       <textarea name="q_extra_multiline_<?=$i?>" rows="1" placeholder="<?=__('Option 1...')?>"><?=$question['extra'] ?? ''?></textarea>
-                      <label><input type="checkbox" name="q_reuse_extra_<?=$i?>" <?=is_null($question['reuse_extra']) ? '' : 'checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
+                      <div class="reuse_extra_div">
+                        <label style="margin-right: 20px;"><input type="checkbox" name="q_reuse_extra_<?=$i?>" <?=is_null($question['reuse_extra']) ? '' : 'checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
+                        <label><input type="checkbox" name="q_in_matrix_<?=$i?>" <?=$question['in_matrix'] ? 'checked' : ''?> /> <?=__('Zusammen mit der Frage darüber als Matrix anzeigen', 'LL_survey')?></label>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -725,45 +729,55 @@ class LL_survey
           function on_select_type_show_hide_extra_div() {
             var select_type = this;
             var extra_div = select_type.parentNode.querySelector('.extra_div');
-            var reuse_extra_checkbox = extra_div.querySelector('[name^="q_reuse_extra"]');
-            if (['<?=implode("', '", self::q_types_with_extra)?>'].includes(select_type.value)) {
-              extra_div.style.display = '';
-            }
-            else {
-              extra_div.style.display = 'none';
-              reuse_extra_checkbox.checked = false;
-            }
             jQuery(extra_div.querySelector('[name^="q_extra_multiline_"]')).each(on_input_extra_text_update_rows);
             jQuery(extra_div.querySelector('[name^="q_extra_"]')).each(on_input_text_show_hide_reuse_extra_checkbox);
-            jQuery(extra_div.querySelector('[name^="q_reuse_extra_"]')).each(on_check_reuse_show_hide_extra_textbox);
-          }
-          function on_input_text_show_hide_reuse_extra_checkbox() {
-            var text_input = this;
-            var checkbox = text_input.parentNode.querySelector('[name^="q_reuse_extra_"]').parentNode;
-            if (text_input.value.length === 0) {
-              checkbox.style.display = '';
-            }
-            else {
-              checkbox.style.display = 'none';
-              checkbox.checked = false;
-            }
+            jQuery(extra_div.querySelector('[name^="q_reuse_extra_"]')).each(on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
+            jQuery(extra_div.querySelector('[name^="q_in_matrix_"]')).each(on_check_in_matrix_show_hide_reuse_extra_checkbox);
           }
           function on_input_extra_text_update_rows() {
             var textarea_extra = this;
             textarea_extra.rows = Math.max(1, textarea_extra.value.split("\n").length);
           }
-          function on_check_reuse_show_hide_extra_textbox() {
-            var checkbox = this;
-            var select_type = checkbox.parentNode.parentNode.parentNode.parentNode.querySelector('[name^="q_type_"]');
+          function on_input_text_show_hide_reuse_extra_checkbox() {
+            var text_input = this;
+            var reuse_extra_div = text_input.parentNode.querySelector('.reuse_extra_div');
+            if (text_input.value.length === 0) {
+              reuse_extra_div.style.display = '';
+            }
+            else {
+              reuse_extra_div.style.display = 'none';
+              reuse_extra_div.querySelector('input[name^="q_reuse_extra_"]').checked = false;
+              reuse_extra_div.querySelector('input[name^="q_in_matrix_"]').checked = false;
+            }
+          }
+          function on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox() {
+            var checkbox_reuse_extra = this;
+            var select_type = checkbox_reuse_extra.parentNode.parentNode.parentNode.parentNode.parentNode.querySelector('[name^="q_type_"]');
             var is_singleline = ['<?=implode("', '", self::q_types_with_extra_singleline)?>'].includes(select_type.value);
             var is_multiline = ['<?=implode("', '", self::q_types_with_extra_multiline)?>'].includes(select_type.value);
-            checkbox.parentNode.parentNode.querySelector('[name^="q_extra_singleline_"]').style.display = (is_singleline && !checkbox.checked) ? '' : 'none';
-            checkbox.parentNode.parentNode.querySelector('[name^="q_extra_multiline_"]').style.display = (is_multiline && !checkbox.checked) ? '' : 'none';
+            checkbox_reuse_extra.parentNode.parentNode.parentNode.querySelector('[name^="q_extra_singleline_"]').style.display = (is_singleline && !checkbox_reuse_extra.checked) ? '' : 'none';
+            checkbox_reuse_extra.parentNode.parentNode.parentNode.querySelector('[name^="q_extra_multiline_"]').style.display = (is_multiline && !checkbox_reuse_extra.checked) ? '' : 'none';
+
+            var checkbox_in_matrix = checkbox_reuse_extra.parentNode.parentNode.querySelector('[name^="q_in_matrix_"]');
+            var label_checkbox_in_matrix = checkbox_in_matrix.parentNode;
+            if (checkbox_reuse_extra.checked) {
+              label_checkbox_in_matrix.style.display = '';
+            }
+            else {
+              label_checkbox_in_matrix.style.display = 'none';
+              checkbox_in_matrix.checked = false;
+            }
+          }
+          function on_check_in_matrix_show_hide_reuse_extra_checkbox() {
+            var checkbox_in_matrix = this;
+            var label_checkbox_reuse_extra = checkbox_in_matrix.parentNode.parentNode.querySelector('[name^="q_reuse_extra_"]').parentNode;
+            label_checkbox_reuse_extra.style.display = checkbox_in_matrix.checked ? 'none' : '';
           }
           jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
-          jQuery(questions_div.querySelectorAll('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);//.each(on_input_extra_text_update_rows);
-          jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);//.each(on_input_text_show_hide_reuse_extra_checkbox);
-          jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox);//.each(on_check_reuse_show_hide_extra_textbox);
+          jQuery(questions_div.querySelectorAll('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
+          jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
+          jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
+          jQuery(questions_div.querySelectorAll('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
 
           jQuery(add_question_btn).click(function() {
             var t_clone = template.cloneNode(true);
@@ -779,6 +793,7 @@ class LL_survey
             t_clone.querySelector('[name="q_extra_singleline_"]').name += i;
             t_clone.querySelector('[name="q_extra_multiline_"]').name += i;
             t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
+            t_clone.querySelector('[name="q_in_matrix_"]').name += i;
 
             if (i > 0) {
               var last = question_divs.last()[0];
@@ -787,9 +802,10 @@ class LL_survey
             }
 
             jQuery(t_clone.querySelector('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
-            jQuery(t_clone.querySelector('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows).each(on_input_extra_text_update_rows);
-            jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox).each(on_input_text_show_hide_reuse_extra_checkbox);
-            jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_show_hide_extra_textbox).each(on_check_reuse_show_hide_extra_textbox);
+            jQuery(t_clone.querySelector('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
+            jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
+            jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
+            jQuery(t_clone.querySelector('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
 
             questions_div.appendChild(t_clone);
 
@@ -857,6 +873,7 @@ class LL_survey
           if ($can_have_multiline_extra)
             $question['extra'] = $_POST['q_extra_multiline_' . $i] ?: null;
           $question['reuse_extra'] = ($can_have_singleline_extra || $can_have_multiline_extra) && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
+          $question['in_matrix'] = $question['reuse_extra'] && $_POST['q_in_matrix_' . $i];
           if (!empty($question['text'])) {
             if (!is_null($question['id'])) {
               ++$questions_updated;
@@ -934,6 +951,7 @@ class LL_survey
   // - type
   // - extra
   // - reuse_extra
+  // - in_matrix
   // - position
   static function shortcode_SURVEY($atts)
   {
@@ -966,136 +984,154 @@ class LL_survey
     }
 
     ob_start();
-?>
-    <div class="<?=self::_?>">
-<?php
     if (!$survey['preview'] || is_user_logged_in()) {
       $questions = self::db_get_questions_by_survey($survey_id);
       $questions_by_id = [];
-      foreach ($questions as $q) {
-        $questions_by_id[$q['id']] = $q;
+      $max_num_matrix_options = 1;
+      foreach ($questions as $idx => &$question) {
+        $question['is_first_in_reuse_chain'] = !$question['reuse_extra'] && count($questions) > ($idx + 1) && $questions[$idx + 1]['reuse_extra'];
+        if (!is_null($question['extra']) && in_array($question['type'], self::q_types_with_extra_multiline)) {
+          $question['extra'] = explode("\n", $question['extra']) ?: [];
+          $max_num_matrix_options = max($max_num_matrix_options, count($question['extra']));
+        }
+        $questions_by_id[$question['id']] = $question;
       }
-      foreach ($questions as $idx => $question) {
+      ?>
+      <style>
+        .<?=self::_?> th { width: 50%; }
+        .<?=self::_?> td { width: <?=50 / $max_num_matrix_options?>%; }
+      </style>
+      <table class="<?=self::_?>">
+      <?php
+      foreach ($questions as $idx => &$question) {
         $tag_id_value = 'q_' . $question['id'];
         $tag_name = 'name="' . $tag_id_value . '"';
         $tag_name_and_id = $tag_name . ' id="' . $tag_id_value . '"';
-        $is_first_in_reuse_chain = !$question['reuse_extra'] && count($questions) > ($idx + 1) && $questions[$idx + 1]['reuse_extra'];
         $extra = ($question['reuse_extra'] ? $questions_by_id[$question['reuse_extra']] : $question)['extra'];
         switch ($question['type']) {
           case self::q_type_text:
             ?>
-            <div>
-              <div class="<?=self::_?>_question"><?=$question['text']?></div>
-              <div class="<?=self::_?>_question_text">
+            <tr>
+              <th class="<?=self::_?>_question"><?=$question['text']?></th>
+              <td class="<?=self::_?>_question_text" colspan="<?=$max_num_matrix_options?>">
                 <input type="text" <?=$tag_name_and_id?> />
-              </div>
-            </div>
+              </td>
+            </tr>
             <?php
             break;
 
           case self::q_type_check:
             ?>
-            <div>
-              <div class="<?=self::_?>_question"><?=$question['text']?></div>
-              <div class="<?=self::_?>_question_check">
+            <tr>
+              <th class="<?=self::_?>_question"><?=$question['text']?></th>
+              <td class="<?=self::_?>_question_check" colspan="<?=$max_num_matrix_options?>">
                 <input type="checkbox" <?=$tag_name_and_id?> /><label for="<?=$tag_id_value?>" data-on="Ja" data-off="Nein"></label>
-              </div>
-            </div>
+              </td>
+            </tr>
             <?php
             break;
 
           case self::q_type_select:
-            if ($is_first_in_reuse_chain) {
+            if ($question['is_first_in_reuse_chain']) {
               ?>
-              <div>
-                <div>Matrix</div>
-                <div class="<?= self::_ ?>_question_select_matrix_header">
-                  <?php
-                  foreach (explode("\n", $extra) as $option) {
-                    ?><span><?=$option?></span><?php
-                  }
-                  ?>
-                </div>
-              </div>
-              <?php
-            }
-            if ($question['reuse_extra'] || $is_first_in_reuse_chain) {
-              ?>
-              <div>
-                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
-                <div class="<?= self::_ ?>_question_select_matrix">
+              <tr>
+                <th>Matrix<?=$question['id']?></th>
                 <?php
-                foreach (explode("\n", $extra) as $option) {
-                  ?><label><input type="radio" <?=$tag_name_and_id?> /></label><?php
+                foreach ($extra as &$option) {
+                  ?>
+                  <td class="<?= self::_ ?>_question_select_matrix_header">
+                    <span><?=$option?></span>
+                  </td>
+                  <?php
                 }
                 ?>
-                </div>
-              </div>
+              </tr>
+              <?php
+            }
+            if ($question['reuse_extra'] || $question['is_first_in_reuse_chain']) {
+              ?>
+              <tr>
+                <th class="<?=self::_?>_question"><?= $question['text'] ?><?=$question['id']?></th>
+                <?php
+                foreach ($extra as $idx => &$option) {
+                  $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
+                  ?>
+                  <td class="<?= self::_ ?>_question_select <?= self::_ ?>_question_select_matrix">
+                    <input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"></label>
+                  </td>
+                  <?php
+                }
+                ?>
+              </tr>
               <?php
             }
             else {
               ?>
-              <div>
-                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
-                <div class="<?= self::_ ?>_question_select">
-                  <?php
-                  foreach (explode("\n", $extra) as $idx => $option) {
-                    $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
-                    ?><input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br /><?php
-                  }
+              <tr>
+                <th class="<?=self::_?>_question"><?= $question['text'] ?><?=$question['id']?></th>
+                <td class="<?= self::_ ?>_question_select">
+                <?php
+                foreach ($extra as $idx => &$option) {
+                  $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?>
-                </div>
-              </div>
+                  <input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br />
+                  <?php
+                }
+                ?>
+                </td>
+              </tr>
               <?php
             }
             break;
 
           case self::q_type_multiselect:
-            if ($is_first_in_reuse_chain) {
+            if ($question['is_first_in_reuse_chain']) {
               ?>
-              <div>
-                <div>Matrix</div>
-                <div class="<?= self::_ ?>_question_select_matrix_header">
+              <tr>
+                <th>Matrix</th>
+                <td class="<?= self::_ ?>_question_select_matrix_header">
                   (noch nicht verfügbar)
-                </div>
-              </div>
+                </td>
+              </tr>
               <?php
             }
-            if ($question['reuse_extra'] || $is_first_in_reuse_chain) {
+            if ($question['reuse_extra'] || $question['is_first_in_reuse_chain']) {
               ?>
-              <div>
-                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
-                <div class="<?= self::_ ?>_question_select_matrix">
+              <tr>
+                <th class="<?=self::_?>_question"><?= $question['text'] ?></th>
+                <td class="<?= self::_ ?>_question_select_matrix">
                   (noch nicht verfügbar)
-                </div>
-              </div>
+                </td>
+              </tr>
               <?php
             }
             else {
               ?>
-              <div>
-                <div class="<?=self::_?>_question"><?= $question['text'] ?></div>
-                <div class="<?= self::_ ?>_question_select">
-                  <?php
-                  foreach (explode("\n", $extra) as $idx => $option) {
-                    $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
-                    $tag_name_and_id_with_idx = 'name="' . $tag_id_value_with_idx . '" id="' . $tag_id_value_with_idx . '"';
-                    ?><input type="checkbox" <?=$tag_name_and_id_with_idx?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br /><?php
-                  }
+              <tr>
+                <th class="<?=self::_?>_question"><?= $question['text'] ?></th>
+                <td class="<?= self::_ ?>_question_select">
+                <?php
+                foreach ($extra as $idx => &$option) {
+                  $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
+                  $tag_name_and_id_with_idx = 'name="' . $tag_id_value_with_idx . '" id="' . $tag_id_value_with_idx . '"';
                   ?>
-                </div>
-              </div>
+                  <input type="checkbox" <?=$tag_name_and_id_with_idx?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br />
+                  <?php
+                }
+                ?>
+                </td>
+              </tr>
               <?php
             }
             break;
         }
       }
+      ?>
+      </table>
+      <?php
 //      print_r($survey);
 //      print_r($questions);
     }
-?>
-    </div>
-<?php
     return ob_get_clean();
   }
 
