@@ -904,10 +904,10 @@ class LL_survey
           }
 
           if (is_null($question['id'])) {
-            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $i);
+            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $i);
           }
           else {
-            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $i);
+            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $i);
           }
 
           $previous_type = $question['type'];
@@ -978,9 +978,7 @@ class LL_survey
         return $survey['end'];
       case 'num-questions':
         return print_r(self::db_get_questions_by_survey($survey_id, [[['COUNT(0)'], 'as' => 'count']])[0]['count'], true);
-        break;
       default:
-        $what = 'survey';
     }
 
     ob_start();
@@ -989,7 +987,7 @@ class LL_survey
       $questions_by_id = [];
       $max_num_matrix_options = 1;
       foreach ($questions as $idx => &$question) {
-        $question['is_first_in_reuse_chain'] = !$question['reuse_extra'] && count($questions) > ($idx + 1) && $questions[$idx + 1]['reuse_extra'];
+        $question['is_first_matrix_row'] = !$question['reuse_extra'] && count($questions) > ($idx + 1) && $questions[$idx + 1]['in_matrix'];
         if (!is_null($question['extra']) && in_array($question['type'], self::q_types_with_extra_multiline)) {
           $question['extra'] = explode("\n", $question['extra']) ?: [];
           $max_num_matrix_options = max($max_num_matrix_options, count($question['extra']));
@@ -1014,7 +1012,7 @@ class LL_survey
             <tr>
               <th class="<?=self::_?>_question"><?=$question['text']?></th>
               <td class="<?=self::_?>_question_text" colspan="<?=$max_num_matrix_options?>">
-                <input type="text" <?=$tag_name_and_id?> />
+                <input type="text" <?=$tag_name_and_id?> pattern="<?=$extra?>" />
               </td>
             </tr>
             <?php
@@ -1025,21 +1023,21 @@ class LL_survey
             <tr>
               <th class="<?=self::_?>_question"><?=$question['text']?></th>
               <td class="<?=self::_?>_question_check" colspan="<?=$max_num_matrix_options?>">
-                <input type="checkbox" <?=$tag_name_and_id?> /><label for="<?=$tag_id_value?>" data-on="Ja" data-off="Nein"></label>
+                <input type="checkbox" <?=$tag_name_and_id?> /><label for="<?=$tag_id_value?>" data-on="<?=$extra[0] ?? __('Ja', 'LL_mailer')?>" data-off="<?=$extra[1] ?? __('Nein', 'LL_mailer')?>"></label>
               </td>
             </tr>
             <?php
             break;
 
           case self::q_type_select:
-            if ($question['is_first_in_reuse_chain']) {
+            if ($question['is_first_matrix_row']) {
               ?>
               <tr>
                 <th>Matrix<?=$question['id']?></th>
                 <?php
                 foreach ($extra as &$option) {
                   ?>
-                  <td class="<?= self::_ ?>_question_select_matrix_header">
+                  <td class="<?=self::_?>_question_select_matrix_header">
                     <span><?=$option?></span>
                   </td>
                   <?php
@@ -1048,15 +1046,15 @@ class LL_survey
               </tr>
               <?php
             }
-            if ($question['reuse_extra'] || $question['is_first_in_reuse_chain']) {
+            if ($question['in_matrix'] || $question['is_first_matrix_row']) {
               ?>
               <tr>
-                <th class="<?=self::_?>_question"><?= $question['text'] ?><?=$question['id']?></th>
+                <th class="<?=self::_?>_question"><?=$question['text']?><?=$question['id']?></th>
                 <?php
                 foreach ($extra as $idx => &$option) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?>
-                  <td class="<?= self::_ ?>_question_select <?= self::_ ?>_question_select_matrix">
+                  <td class="<?=self::_?>_question_select <?=self::_?>_question_select_matrix">
                     <input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"></label>
                   </td>
                   <?php
@@ -1068,8 +1066,8 @@ class LL_survey
             else {
               ?>
               <tr>
-                <th class="<?=self::_?>_question"><?= $question['text'] ?><?=$question['id']?></th>
-                <td class="<?= self::_ ?>_question_select">
+                <th class="<?=self::_?>_question"><?=$question['text']?><?=$question['id']?></th>
+                <td class="<?=self::_?>_question_select">
                 <?php
                 foreach ($extra as $idx => &$option) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
@@ -1085,21 +1083,21 @@ class LL_survey
             break;
 
           case self::q_type_multiselect:
-            if ($question['is_first_in_reuse_chain']) {
+            if ($question['is_first_matrix_row']) {
               ?>
               <tr>
                 <th>Matrix</th>
-                <td class="<?= self::_ ?>_question_select_matrix_header">
+                <td class="<?=self::_?>_question_select_matrix_header">
                   (noch nicht verfügbar)
                 </td>
               </tr>
               <?php
             }
-            if ($question['reuse_extra'] || $question['is_first_in_reuse_chain']) {
+            if ($question['in_matrix'] || $question['is_first_matrix_row']) {
               ?>
               <tr>
-                <th class="<?=self::_?>_question"><?= $question['text'] ?></th>
-                <td class="<?= self::_ ?>_question_select_matrix">
+                <th class="<?=self::_?>_question"><?=$question['text']?></th>
+                <td class="<?=self::_?>_question_select_matrix">
                   (noch nicht verfügbar)
                 </td>
               </tr>
@@ -1108,8 +1106,8 @@ class LL_survey
             else {
               ?>
               <tr>
-                <th class="<?=self::_?>_question"><?= $question['text'] ?></th>
-                <td class="<?= self::_ ?>_question_select">
+                <th class="<?=self::_?>_question"><?=$question['text']?></th>
+                <td class="<?= self::_?>_question_select">
                 <?php
                 foreach ($extra as $idx => &$option) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
