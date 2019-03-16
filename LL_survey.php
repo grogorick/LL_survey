@@ -1073,21 +1073,34 @@ class LL_survey
       ?>
       <style>
         .<?=self::_?> th { width: 50%; }
-        .<?=self::_?> td { width: <?=50 / $max_num_matrix_options?>%; }
       </style>
       <table class="<?=self::_?>">
       <?php
+      $single_input_row_style = 'colspan="' . $max_num_matrix_options . '" style="width: 50%;"';
+      $matrix_input_row_style = 'style="' . (50 / $max_num_matrix_options) . '%;"';
       foreach ($questions as $idx => &$question) {
         $tag_id_value = 'q_' . $question['id'];
         $tag_name = 'name="' . $tag_id_value . '"';
         $tag_name_and_id = $tag_name . ' id="' . $tag_id_value . '"';
         $extra = ($question['reuse_extra'] ? $questions_by_id[$question['reuse_extra']] : $question)['extra'];
         switch ($question['type']) {
+          case self::q_type_separator:
+            ?>
+            <tr class="<?=self::_?>_next_page">
+              <td colspan="<?=$max_num_matrix_options + 1?>" style="width: 100%;">
+                <button type="button">Weiter</button>
+              </td>
+            </tr>
+          </table>
+          <table class="<?=self::_?>" style="display: none;">
+            <?php
+            break;
+
           case self::q_type_text:
             ?>
             <tr>
               <th class="<?=self::_?>_question"><?=$question['text']?></th>
-              <td class="<?=self::_?>_question_text" colspan="<?=$max_num_matrix_options?>">
+              <td class="<?=self::_?>_question_text" <?=$single_input_row_style?>>
                 <input type="text" <?=$tag_name_and_id?> pattern="<?=$extra?>" />
               </td>
             </tr>
@@ -1098,7 +1111,7 @@ class LL_survey
             ?>
             <tr>
               <th class="<?=self::_?>_question"><?=$question['text']?></th>
-              <td class="<?=self::_?>_question_check" colspan="<?=$max_num_matrix_options?>">
+              <td class="<?=self::_?>_question_check" <?=$single_input_row_style?>>
                 <input type="checkbox" <?=$tag_name_and_id?> /><label for="<?=$tag_id_value?>" data-on="<?=$extra[0] ?? __('Ja', 'LL_mailer')?>" data-off="<?=$extra[1] ?? __('Nein', 'LL_mailer')?>"></label>
               </td>
             </tr>
@@ -1109,11 +1122,11 @@ class LL_survey
             if ($question['is_first_matrix_row']) {
               ?>
               <tr>
-                <th>Matrix<?=$question['id']?></th>
+                <th>Matrix</th>
                 <?php
                 foreach ($extra as &$option) {
                   ?>
-                  <td class="<?=self::_?>_question_select_matrix_header">
+                  <td class="<?=self::_?>_question_select_matrix_header" <?=$matrix_input_row_style?>>
                     <span><?=$option?></span>
                   </td>
                   <?php
@@ -1125,12 +1138,12 @@ class LL_survey
             if ($question['in_matrix'] || $question['is_first_matrix_row']) {
               ?>
               <tr>
-                <th class="<?=self::_?>_question"><?=$question['text']?><?=$question['id']?></th>
+                <th class="<?=self::_?>_question"><?=$question['text']?></th>
                 <?php
                 foreach ($extra as $idx => &$option) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?>
-                  <td class="<?=self::_?>_question_select <?=self::_?>_question_select_matrix">
+                  <td class="<?=self::_?>_question_select <?=self::_?>_question_select_matrix" <?=$matrix_input_row_style?>>
                     <input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"></label>
                   </td>
                   <?php
@@ -1142,8 +1155,8 @@ class LL_survey
             else {
               ?>
               <tr>
-                <th class="<?=self::_?>_question"><?=$question['text']?><?=$question['id']?></th>
-                <td class="<?=self::_?>_question_select">
+                <th class="<?=self::_?>_question"><?=$question['text']?></th>
+                <td class="<?=self::_?>_question_select" <?=$single_input_row_style?>>
                 <?php
                 foreach ($extra as $idx => &$option) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
@@ -1163,7 +1176,7 @@ class LL_survey
               ?>
               <tr>
                 <th>Matrix</th>
-                <td class="<?=self::_?>_question_select_matrix_header">
+                <td class="<?=self::_?>_question_select_matrix_header" <?=$matrix_input_row_style?>>
                   (noch nicht verfügbar)
                 </td>
               </tr>
@@ -1173,7 +1186,7 @@ class LL_survey
               ?>
               <tr>
                 <th class="<?=self::_?>_question"><?=$question['text']?></th>
-                <td class="<?=self::_?>_question_select_matrix">
+                <td class="<?=self::_?>_question_select_matrix" <?=$matrix_input_row_style?>>
                   (noch nicht verfügbar)
                 </td>
               </tr>
@@ -1183,7 +1196,7 @@ class LL_survey
               ?>
               <tr>
                 <th class="<?=self::_?>_question"><?=$question['text']?></th>
-                <td class="<?= self::_?>_question_select">
+                <td class="<?= self::_?>_question_select" <?=$single_input_row_style?>>
                 <?php
                 foreach ($extra as $idx => &$option) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
@@ -1202,6 +1215,19 @@ class LL_survey
       }
       ?>
       </table>
+      <script>
+        jQuery(function() {
+          jQuery('.<?=self::_?>_next_page button').click(function() {
+            var current_table = this.closest('table.<?=self::_?>');
+            var next_table = current_table.nextElementSibling;
+            console.log(this);
+            console.log(current_table);
+            console.log(next_table);
+            current_table.style.display = 'none';
+            next_table.style.display = '';
+          });
+        });
+      </script>
       <?php
 //      print_r($survey);
 //      print_r($questions);
