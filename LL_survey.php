@@ -934,6 +934,7 @@ class LL_survey
         $questions_not_added = 0;
         $questions_updated = 0;
         $questions_added = 0;
+        $separators_removed = 0;
         $i = 0;
         while (isset($_POST['q_id_' . $i])) {
           $question = [
@@ -970,22 +971,46 @@ class LL_survey
           }
           ++$i;
         }
-        $i = 0;
+
         ksort($questions);
+
+        // remove double separators
+        $last_was_separator = reset($questions)['type'] === self::q_type_separator;
+        while (true) {
+          $q = next($questions);
+          if ($q === false) break;
+          $q_is_separator = $q['type'] === self::q_type_separator;
+          if ($last_was_separator && $q_is_separator) {
+            unset($questions[key($questions)]);
+            ++$separators_removed;
+          }
+          $last_was_separator = $q_is_separator;
+        };
+        // remove separators at begin and end
+        if (reset($questions)['type'] === self::q_type_separator) {
+          unset($questions[key($questions)]);
+          ++$separators_removed;
+        }
+        if (end($questions)['type'] === self::q_type_separator) {
+          unset($questions[key($questions)]);
+          ++$separators_removed;
+        }
+        reset($questions);
+
+        // add/update questions
         $previous_type = null;
         $previous_id = null;
+        $i = 0;
         foreach ($questions as $question) {
           if ($previous_type !== $question['type']) {
             $previous_id = null;
           }
-
           if (is_null($question['id'])) {
             $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $i);
           }
           else {
             self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $i);
           }
-
           $previous_type = $question['type'];
           if (!$question['reuse_extra']) {
             $previous_id = $question['id'];
@@ -996,6 +1021,7 @@ class LL_survey
         if ($questions_added > 0) self::message(sprintf(__('%d neue Frage(n) hinzugefügt', 'LL_survey'), $questions_added));
         if ($questions_deleted > 0) self::message(sprintf(__('%d Frage(n) gelöscht', 'LL_survey'), $questions_deleted));
         if ($questions_not_added > 0) self::message(sprintf(__('%d neue leere Frage(n) ignoriert', 'LL_survey'), $questions_not_added));
+        if ($separators_removed > 0) self::message(sprintf(__('%d Seitenwechsel entfernt', 'LL_survey'), $separators_removed));
 
         wp_redirect(self::admin_url() . self::admin_page_survey_edit . $survey_id);
         exit;
@@ -1059,6 +1085,30 @@ class LL_survey
 
     ob_start();
     if (!$survey['preview'] || is_user_logged_in()) {
+
+      function print_navigation_buttons($max_num_matrix_options, $back, $next) {
+        ?>
+        <tr class="<?=self::_?>_next_page">
+          <td colspan="<?=$max_num_matrix_options + 1?>" style="width: 100%;">
+            <?php
+            if ($back) {
+              ?>
+              <input type="button" class="<?=self::_?>_btn_back" value="<?=__('Zurück', 'LL_survey')?>" />
+              <?php
+            }
+            ?>
+            <?php
+            if ($next) {
+              ?>
+              <input type="button" class="<?=self::_?>_btn_next" value="<?=__('Weiter', 'LL_survey')?>" />
+              <?php
+            }
+            ?>
+          </td>
+        </tr>
+        <?php
+      }
+
       $questions = self::db_get_questions_by_survey($survey_id);
       $questions_by_id = [];
       $max_num_matrix_options = 1;
@@ -1078,6 +1128,7 @@ class LL_survey
       <?php
       $single_input_row_style = 'colspan="' . $max_num_matrix_options . '" style="width: 50%;"';
       $matrix_input_row_style = 'style="' . (50 / $max_num_matrix_options) . '%;"';
+      $is_first_separator = true;
       foreach ($questions as $idx => &$question) {
         $tag_id_value = 'q_' . $question['id'];
         $tag_name = 'name="' . $tag_id_value . '"';
@@ -1085,12 +1136,13 @@ class LL_survey
         $extra = ($question['reuse_extra'] ? $questions_by_id[$question['reuse_extra']] : $question)['extra'];
         switch ($question['type']) {
           case self::q_type_separator:
+            $back = true;
+            if ($is_first_separator) {
+              $is_first_separator = false;
+              $back = false;
+            }
+            print_navigation_buttons($max_num_matrix_options, $back, true);
             ?>
-            <tr class="<?=self::_?>_next_page">
-              <td colspan="<?=$max_num_matrix_options + 1?>" style="width: 100%;">
-                <button type="button">Weiter</button>
-              </td>
-            </tr>
           </table>
           <table class="<?=self::_?>" style="display: none;">
             <?php
@@ -1213,16 +1265,20 @@ class LL_survey
             break;
         }
       }
+      print_navigation_buttons($max_num_matrix_options, !$is_first_separator, false);
       ?>
       </table>
       <script>
         jQuery(function() {
-          jQuery('.<?=self::_?>_next_page button').click(function() {
+          jQuery('.<?=self::_?>_btn_back').click(function() {
+            var current_table = this.closest('table.<?=self::_?>');
+            var previous_table = current_table.previousElementSibling;
+            current_table.style.display = 'none';
+            previous_table.style.display = '';
+          });
+          jQuery('.<?=self::_?>_btn_next').click(function() {
             var current_table = this.closest('table.<?=self::_?>');
             var next_table = current_table.nextElementSibling;
-            console.log(this);
-            console.log(current_table);
-            console.log(next_table);
             current_table.style.display = 'none';
             next_table.style.display = '';
           });
