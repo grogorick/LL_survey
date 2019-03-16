@@ -40,9 +40,12 @@ class LL_survey
   const q_type_check = 'check';
   const q_type_select = 'select';
   const q_type_multiselect = 'multiselect';
+  const q_type_separator = '-';
+  const q_type_delete = 'x';
 
   const q_types_with_extra_singleline = [self::q_type_text];
   const q_types_with_extra_multiline = [self::q_type_check, self::q_type_select, self::q_type_multiselect];
+  const q_types_select = [self::q_type_select, self::q_type_multiselect];
 
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
@@ -53,7 +56,10 @@ class LL_survey
 
 	static function _($member_function) { return [self::_, $member_function]; }
 
+	static function is_question($type) { return self::q_type_separator === $type; }
+
 	static function db_($table) { global $wpdb; return $wpdb->prefix . $table; }
+	static function js_($array) { return "'" . implode("', '", $array) . "'"; }
 
   static function pluginPath() { return plugin_dir_path(__FILE__); }
   static function admin_url() { return get_admin_url() . 'admin.php?page='; }
@@ -389,7 +395,7 @@ class LL_survey
       CREATE TABLE ' . self::escape_key(self::db_(self::table_questions)) . ' (
         `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
         `survey` int(10) UNSIGNED NOT NULL,
-        `text` text NOT NULL,
+        `text` text NULL,
         `type` varchar(20) NOT NULL,
         `extra` text NULL,
         `reuse_extra` int(10) UNSIGNED NULL,
@@ -624,13 +630,29 @@ class LL_survey
             <th scope="row"><?=__('Fragen', 'LL_survey')?></th>
             <td>
               <style>
+                #<?=self::_?>_questions_div {
+                  margin-top: -50px;
+                  margin-bottom: -50px;
+                }
+                #<?=self::_?>_questions_div:before, #<?=self::_?>_questions_div:after {
+                  height: 50px;
+                  content: '';
+                  display: block;
+                }
                 #<?=self::_?>_questions_div > div {
                   display: flex;
                   flex-direction: row;
+                  margin-bottom: 20px;
                 }
-                #<?=self::_?>_questions_div > div > div {
+                #<?=self::_?>_questions_div > div > .input_div {
                   flex: 1;
                   display: inline-block;
+                }
+                #<?=self::_?>_questions_div > div > hr {
+                  border: 0;
+                  border-bottom: 1px dashed gray;
+                  flex: .9;
+                  height: 7px;
                 }
                 #<?=self::_?>_questions_div > div > div > *, #<?=self::_?>_questions_div .extra_div > input[type="text"], #<?=self::_?>_questions_div .extra_div > textarea {
                   width: 100%;
@@ -650,6 +672,9 @@ class LL_survey
                 #<?=self::_?>_questions_div input[type="text"] {
                   height: 28px;
                 }
+                #<?=self::_?>_add_question_btn {
+                  margin: 0 0 20px 36px;
+                }
               </style>
               <div id="<?=self::_?>_questions_div">
 <?php
@@ -665,8 +690,11 @@ class LL_survey
                     <option value="<?=self::q_type_check?>" <?=$t == self::q_type_check ? 'selected' : ''?>><?=__('Check', 'LL_survey')?></option>
                     <option value="<?=self::q_type_select?>" <?=$t == self::q_type_select ? 'selected' : ''?>><?=__('Auswahl', 'LL_survey')?></option>
                     <option value="<?=self::q_type_multiselect?>" <?=$t == self::q_type_multiselect ? 'selected' : ''?>><?=__('Mehrfachauswahl', 'LL_survey')?></option>
+                    <option value="<?=self::q_type_separator?>" <?=$t == self::q_type_separator ? 'selected' : ''?>>(<?=__('Seitenwechsel', 'LL_survey')?>)</option>
+                    <option value="<?=self::q_type_delete?>">(<?=__('Löschen', 'LL_survey')?>)</option>
                   </select>
-                  <div>
+                  <hr style="display: none;" />
+                  <div class="input_div" style="display: none;">
                     <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text'] ?? ''?>" />
                     <div class="extra_div">
                       <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=$question['extra'] ?? ''?>" />
@@ -689,18 +717,17 @@ class LL_survey
         }
 ?>
               </div>
+              <p>
+                <button id="<?=self::_?>_add_question_btn" class="button" type="button"><?=__('Frage hinzufügen', 'LL_survey')?></button>
+              </p>
               <p class="description">
-                <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
-                <?=__('Leere das Textfeld einer Frage um sie (beim Speichern) zu löschen.', 'LL_survey')?>
+                <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?>
               </p>
               <div style="display: none">
 <?php
         print_question_html('', null);
 ?>
               </div>
-              <p>
-                <button id="<?=self::_?>_add_question_btn" class="button" type="button"><?=__('Frage hinzufügen', 'LL_survey')?></button>
-              </p>
             </td>
           </tr>
           <tr>
@@ -714,10 +741,17 @@ class LL_survey
           var jq_questions_div = jQuery(questions_div);
           var template = document.querySelector('#<?=self::_?>_add_question_template');
           var add_question_btn = document.querySelector('#<?=self::_?>_add_question_btn');
+
           function make_sortable() {
             jq_questions_div.sortable({
               axis: 'y',
               containment: 'parent',
+              start: function(event, ui) {
+                ui.placeholder.css({
+                  'visibility': '',
+                  'border': '1px dashed gray'
+                });
+              },
               stop: function() {
                 jq_questions_div.children().each(function(idx, item) {
                   item.querySelector('[name^="q_order_"]').value = idx;
@@ -726,18 +760,49 @@ class LL_survey
             });
             jq_questions_div.disableSelection();
           }
+
           function on_select_type_show_hide_extra_div() {
             var select_type = this;
-            var extra_div = select_type.parentNode.querySelector('.extra_div');
-            jQuery(extra_div.querySelector('[name^="q_extra_multiline_"]')).each(on_input_extra_text_update_rows);
-            jQuery(extra_div.querySelector('[name^="q_extra_"]')).each(on_input_text_show_hide_reuse_extra_checkbox);
-            jQuery(extra_div.querySelector('[name^="q_reuse_extra_"]')).each(on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
-            jQuery(extra_div.querySelector('[name^="q_in_matrix_"]')).each(on_check_in_matrix_show_hide_reuse_extra_checkbox);
+            var separator_hr = select_type.parentNode.querySelector('hr');
+            var input_div = select_type.parentNode.querySelector('.input_div');
+            var extra_singleline_input = jQuery(input_div.querySelector('[name^="q_extra_singleline"]'));
+            var extra_multiline_textarea = jQuery(input_div.querySelector('[name^="q_extra_multiline_"]'));
+            var reuse_extra_check = jQuery(input_div.querySelector('[name^="q_reuse_extra_"]'));
+            var in_matrix_check = jQuery(input_div.querySelector('[name^="q_in_matrix_"]'));
+
+            if (select_type.value === '<?=self::q_type_separator?>') {
+              separator_hr.style.display = '';
+              input_div.style.display = 'none';
+            }
+            else if (select_type.value === '<?=self::q_type_delete?>') {
+              separator_hr.style.display = 'none';
+              input_div.style.display = 'none';
+            }
+            else {
+              separator_hr.style.display = 'none';
+              input_div.style.display = '';
+              if ([<?=self::js_(self::q_types_with_extra_singleline)?>].includes(select_type.value)) {
+                extra_singleline_input.attr('data-visible', '1');
+                extra_multiline_textarea.attr('data-visible', null);
+                extra_multiline_textarea.val('');
+                extra_singleline_input.each(on_input_text_show_hide_reuse_extra_checkbox);
+              } else {
+                extra_singleline_input.attr('data-visible', null);
+                extra_multiline_textarea.attr('data-visible', '1');
+                extra_singleline_input.val('');
+                extra_multiline_textarea.each(on_input_extra_text_update_rows);
+                extra_multiline_textarea.each(on_input_text_show_hide_reuse_extra_checkbox);
+              }
+              reuse_extra_check.each(on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
+              in_matrix_check.each(on_check_in_matrix_show_hide_reuse_extra_checkbox);
+            }
           }
+
           function on_input_extra_text_update_rows() {
             var textarea_extra = this;
             textarea_extra.rows = Math.max(1, textarea_extra.value.split("\n").length);
           }
+
           function on_input_text_show_hide_reuse_extra_checkbox() {
             var text_input = this;
             var reuse_extra_div = text_input.parentNode.querySelector('.reuse_extra_div');
@@ -750,17 +815,25 @@ class LL_survey
               reuse_extra_div.querySelector('input[name^="q_in_matrix_"]').checked = false;
             }
           }
+
           function on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox() {
             var checkbox_reuse_extra = this;
             var select_type = checkbox_reuse_extra.parentNode.parentNode.parentNode.parentNode.parentNode.querySelector('[name^="q_type_"]');
-            var is_singleline = ['<?=implode("', '", self::q_types_with_extra_singleline)?>'].includes(select_type.value);
-            var is_multiline = ['<?=implode("', '", self::q_types_with_extra_multiline)?>'].includes(select_type.value);
-            checkbox_reuse_extra.parentNode.parentNode.parentNode.querySelector('[name^="q_extra_singleline_"]').style.display = (is_singleline && !checkbox_reuse_extra.checked) ? '' : 'none';
-            checkbox_reuse_extra.parentNode.parentNode.parentNode.querySelector('[name^="q_extra_multiline_"]').style.display = (is_multiline && !checkbox_reuse_extra.checked) ? '' : 'none';
+            var extra_singleline = select_type.parentNode.querySelector('[name^="q_extra_singleline_"]');
+            var extra_multiline = select_type.parentNode.querySelector('[name^="q_extra_multiline_"]');
 
-            var checkbox_in_matrix = checkbox_reuse_extra.parentNode.parentNode.querySelector('[name^="q_in_matrix_"]');
-            var label_checkbox_in_matrix = checkbox_in_matrix.parentNode;
             if (checkbox_reuse_extra.checked) {
+              extra_singleline.style.display = 'none';
+              extra_multiline.style.display = 'none';
+            }
+            else {
+              extra_singleline.style.display = extra_singleline.getAttribute('data-visible') ? '' : 'none';
+              extra_multiline.style.display = extra_multiline.getAttribute('data-visible') ? '' : 'none';
+            }
+
+            var checkbox_in_matrix = select_type.parentNode.querySelector('[name^="q_in_matrix_"]');
+            var label_checkbox_in_matrix = checkbox_in_matrix.parentNode;
+            if (checkbox_reuse_extra.checked && [<?=self::js_(self::q_types_select)?>].includes(select_type.value)) {
               label_checkbox_in_matrix.style.display = '';
             }
             else {
@@ -768,11 +841,13 @@ class LL_survey
               checkbox_in_matrix.checked = false;
             }
           }
+
           function on_check_in_matrix_show_hide_reuse_extra_checkbox() {
             var checkbox_in_matrix = this;
             var label_checkbox_reuse_extra = checkbox_in_matrix.parentNode.parentNode.querySelector('[name^="q_reuse_extra_"]').parentNode;
             label_checkbox_reuse_extra.style.display = checkbox_in_matrix.checked ? 'none' : '';
           }
+
           jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
           jQuery(questions_div.querySelectorAll('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
           jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
@@ -855,42 +930,43 @@ class LL_survey
         self::message(__('Umfragedaten aktualisiert.', 'LL_survey'));
 
         $questions = [];
-        $questions_updated = 0;
-        $questions_added = 0;
         $questions_deleted = 0;
         $questions_not_added = 0;
+        $questions_updated = 0;
+        $questions_added = 0;
         $i = 0;
         while (isset($_POST['q_id_' . $i])) {
-          $question = [];
-          $question['id'] = $_POST['q_id_' . $i] ?: null;
-          $question['text'] = trim($_POST['q_text_' . $i]);
-          $question['type'] = $_POST['q_type_' . $i];
-          $can_have_singleline_extra = in_array($question['type'], self::q_types_with_extra_singleline);
-          $can_have_multiline_extra = in_array($question['type'], self::q_types_with_extra_multiline);
-          $question['extra'] = null;
-          if ($can_have_singleline_extra)
-            $question['extra'] = $_POST['q_extra_singleline_' . $i] ?: null;
-          if ($can_have_multiline_extra)
-            $question['extra'] = $_POST['q_extra_multiline_' . $i] ?: null;
-          $question['reuse_extra'] = ($can_have_singleline_extra || $can_have_multiline_extra) && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
-          $question['in_matrix'] = $question['reuse_extra'] && $_POST['q_in_matrix_' . $i];
-          if (!empty($question['text'])) {
-            if (!is_null($question['id'])) {
-              ++$questions_updated;
-            }
-            else {
-              ++$questions_added;
-            }
-            $questions[intval($_POST['q_order_' . $i])] = $question;
-          }
-          else {
+          $question = [
+            'id' => $_POST['q_id_' . $i] ?: null,
+            'type' => $_POST['q_type_' . $i],
+            'text' => null,
+            'extra' => null,
+            'reuse_extra' => false,
+            'in_matrix' => false
+          ];
+          if ($question['type'] === self::q_type_delete) {
             if (!is_null($question['id'])) {
               self::db_delete_question($question['id']);
               ++$questions_deleted;
             }
-            else {
+            else
               ++$questions_not_added;
+          }
+          else {
+            if ($question['type'] !== self::q_type_separator) {
+              $question['text'] = trim($_POST['q_text_' . $i]);
+              $can_have_singleline_extra = in_array($question['type'], self::q_types_with_extra_singleline);
+              $can_have_multiline_extra = in_array($question['type'], self::q_types_with_extra_multiline);
+              if ($can_have_singleline_extra) $question['extra'] = $_POST['q_extra_singleline_' . $i] ?: null;
+              else if ($can_have_multiline_extra) $question['extra'] = $_POST['q_extra_multiline_' . $i] ?: null;
+              $question['reuse_extra'] = ($can_have_singleline_extra || $can_have_multiline_extra) && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
+              $question['in_matrix'] = $question['reuse_extra'] && $_POST['q_in_matrix_' . $i];
             }
+            $questions[intval($_POST['q_order_' . $i])] = $question;
+            if (!is_null($question['id']))
+              ++$questions_updated;
+            else
+              ++$questions_added;
           }
           ++$i;
         }
