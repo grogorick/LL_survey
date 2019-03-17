@@ -27,7 +27,7 @@ class LL_survey
 
   const table_surveys                       = self::_ . '_surveys';
   const table_questions                     = self::_ . '_questions';
-  const table_answers                       = self::_ . '_answers';
+  const table_answers                       = self::_ . '_answers_';
 
   const admin_page_settings                 = self::_ . '_settings';
   const admin_page_surveys                  = self::_ . '_surveys';
@@ -46,6 +46,8 @@ class LL_survey
   const q_types_with_extra_singleline = [self::q_type_text];
   const q_types_with_extra_multiline = [self::q_type_check, self::q_type_select, self::q_type_multiselect];
   const q_types_select = [self::q_type_select, self::q_type_multiselect];
+
+  const q_special_text_types = ['number', 'date', 'time', 'datetime-local', 'email', 'url'];
 
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
@@ -283,7 +285,7 @@ class LL_survey
     return implode(', ', self::escape_keys($what));
   }
 
-  static function _db_build_select($tables, $what, $where, $groupby, $orderby)
+  static function _db_build_select($tables, $what, $where = [], $groupby = [], $orderby = [])
   {
     $sql = 'SELECT ' . self::_sql_what($what) . self::_sql_from($tables) . self::_sql_where($where) . self::_sql_groupby($groupby) . self::_sql_orderby($orderby) . ';';
     // self::message($sql);
@@ -345,19 +347,27 @@ class LL_survey
     return $result;
   }
 
+  static function _db_delete_table($table)
+  {
+    global $wpdb;
+    $result = $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_key($table) . ';');
+    if ($wpdb->last_error) self::message('<i>(_db_delete_table)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
+    return $result;
+  }
+
 
 
   // surveys
   // - id
   // - name
-  // - preview
+  // - active
   // - start
   // - end
   static function db_add_survey($title) { return self::_db_insert(self::db_(self::table_surveys), ['title' => $title]); }
   static function db_update_survey($survey_id, $data) { return self::_db_update(self::db_(self::table_surveys), $data, ['id' => ['=', $survey_id]]); }
   static function db_get_surveys($what = [['*']]) { return self::_db_select(self::db_(self::table_surveys), $what); }
-  static function db_get_surveys_with_count() { return self::_db_select([[self::db_(self::table_surveys), 'as' => 's'], [self::db_(self::table_questions), 'as' => 'q'], 'left join' => '`s`.`id` = `q`.`survey`'], [['.' => 's', 'id', 'as' => 'id'], ['.' => 's', 'title', 'as' => 'title'], ['.' => 's', 'preview', 'as' => 'preview'], ['.' => 's', 'start', 'as' => 'start'], ['.' => 's', 'end', 'as' => 'end'], [['COUNT(0)'], 'as' => 'num-questions']], [], [['.' => 's', 'id']]); }
-  static function db_get_survey_by_id($survey_id) { return self::_db_select_row(self::db_(self::table_surveys), ['id', 'title', 'preview', 'start', 'end', ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']], ['id' => ['=', $survey_id]]); }
+  static function db_get_surveys_with_count() { return self::_db_select([[self::db_(self::table_surveys), 'as' => 's'], [self::db_(self::table_questions), 'as' => 'q'], 'left join' => '`s`.`id` = `q`.`survey`'], [['.' => 's', 'id', 'as' => 'id'], ['.' => 's', 'title', 'as' => 'title'], ['.' => 's', 'active', 'as' => 'active'], ['.' => 's', 'start', 'as' => 'start'], ['.' => 's', 'end', 'as' => 'end'], [['COUNT(0)'], 'as' => 'num-questions']], [], [['.' => 's', 'id']]); }
+  static function db_get_survey_by_id($survey_id) { return self::_db_select_row(self::db_(self::table_surveys), ['id', 'title', 'active', 'start', 'end', 'redirect_page', ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']], ['id' => ['=', $survey_id]]); }
   static function db_delete_survey($survey_id) { return self::_db_delete(self::db_(self::table_surveys), ['id' => ['=', $survey_id]]); }
 
   // questions
@@ -374,6 +384,13 @@ class LL_survey
   static function db_delete_question($question_id) { return self::_db_delete(self::db_(self::table_questions), ['id' => ['=', $question_id]]); }
   static function db_get_questions_by_survey($survey_id, $what = [['*']]) { return self::_db_select(self::db_(self::table_questions), $what, ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
 
+  // answers
+  // - id
+  // - question
+  // - text
+  // - time
+  static function db_add_answer($survey_id, $answer) { return self::_db_insert(self::db_(self::table_answers . $survey_id), $answer); }
+
 
 
   static function activate()
@@ -384,10 +401,11 @@ class LL_survey
     $r[] = self::db_(self::table_surveys ). ' : ' . ($wpdb->query('
       CREATE TABLE ' . self::escape_key(self::db_(self::table_surveys)) . ' (
         `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-        `title` varchar(200) NOT NULL,
-        `preview` tinyint(1) NOT NULL DEFAULT \'1\',
+        `title` text NOT NULL,
+        `active` tinyint(1) NOT NULL DEFAULT \'0\',
         `start` datetime DEFAULT NULL,
         `end` datetime DEFAULT NULL,
+        `redirect_page` varchar(200) NULL
         PRIMARY KEY (`id`)
       ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
 
@@ -406,16 +424,6 @@ class LL_survey
         FOREIGN KEY (`reuse_extra`) REFERENCES ' . self::escape_key(self::db_(self::table_questions)) . ' (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
       ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
 
-    $r[] = self::db_(self::table_answers ). ' : ' . ($wpdb->query('
-      CREATE TABLE ' . self::escape_key(self::db_(self::table_answers)) . ' (
-        `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-        `question` int(10) UNSIGNED NOT NULL,
-        `text` text NOT NULL,
-        `time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        FOREIGN KEY (`question`) REFERENCES ' . self::escape_key(self::db_(self::table_questions)) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-      ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
-    
     self::message('Datenbank eingerichtet.<br /><p>- ' . implode('</p><p>- ', $r) . '</p>');
 
 
@@ -429,10 +437,9 @@ class LL_survey
 
   static function uninstall()
   {
-    global $wpdb;
-    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys(self::db_(self::table_answers)) . ';');
-    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys(self::db_(self::table_questions)) . ';');
-    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys(self::db_(self::table_surveys)) . ';');
+    self::_db_delete_table(self::table_answers);
+    self::_db_delete_table(self::table_questions);
+    self::_db_delete_table(self::table_surveys);
 
     delete_option(self::option_msg);
     delete_option(self::option_test);
@@ -440,10 +447,28 @@ class LL_survey
 
 
 
+  static function find_wp_post($slug)
+  {
+    global $wpdb;
+    return (int) $wpdb->get_var(self::_db_build_select($wpdb->posts, ['ID'], ['post_name' => ['=', $slug]]));
+  }
+
+  static function get_post_edit_url($post_id)
+  {
+    return admin_url('post.php?action=edit&post=' . $post_id);
+  }
+
   static function json_get($request)
   {
     if (isset($request['test'])) {
       return 'test';
+    }
+    else if (isset($request['find_post'])) {
+      $id = self::find_wp_post($request['find_post']);
+      $url = $id ? self::get_post_edit_url($id) : null;
+      return array(
+        'id'  => $id,
+        'url' => $url);
     }
   }
 
@@ -620,10 +645,12 @@ class LL_survey
             </td>
           </tr>
           <tr>
-            <th scope="row"><?=__('Vorschaumodus', 'LL_survey')?></th>
+            <th scope="row"><?=__('Weiterleitung', 'LL_survey')?></th>
             <td>
-              <input type="checkbox" name="preview" id="preview" <?=$survey['preview'] ? 'checked' : ''?> />
-              <label for="preview">&nbsp; <span class="description"><?=__('Sichtbar nur für eingeloggte Nutzer', 'LL_survey')?></span></label>
+              <input type="text" name="redirect_page" id="<?=self::_?>_redirect_page" class="regular-text" value="<?=$survey['redirect_page']?>" /> &nbsp; <span id="<?=self::_?>_redirect_page_response"></span>
+              <p class="description">
+                <?=__('Die Blog-Seite, die nach der Umfrage angezeigt werden soll.', 'LL_survey')?>
+              </p>
             </td>
           </tr>
           <tr>
@@ -721,7 +748,8 @@ class LL_survey
                 <button id="<?=self::_?>_add_question_btn" class="button" type="button"><?=__('Frage hinzufügen', 'LL_survey')?></button>
               </p>
               <p class="description">
-                <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?>
+                <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
+                <?=sprintf(__('Als Option für Text-Fragen kann ein %s oder einer der vordefinierten Typen %s verwendet werden.', 'LL_survey'), '<code>pattern</code>', '<code>' . implode(', ', self::q_special_text_types) . '</code>')?>
               </p>
               <div style="display: none">
 <?php
@@ -737,6 +765,46 @@ class LL_survey
       </form>
       <script>
         jQuery(function() {
+
+          // GENERAL SURVEY
+
+          timeout = {};
+          function check_page_exists(tag_id) {
+            var page_input = document.querySelector('#' + tag_id);
+            var response_tag = document.querySelector('#' + tag_id + '_response');
+            timeout[tag_id] = null;
+            function check_now() {
+              timeout[tag_id] = null;
+              jQuery.getJSON('<?=self::json_url()?>get?find_post=' + page_input.value, function(post) {
+                if (post.id > 0) {
+                  response_tag.innerHTML = '(<a href="' + post.url + '"><?=__('Zur Seite')?></a>)';
+                }
+                else {
+                  response_tag.innerHTML = '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>';
+                }
+              });
+            }
+            function check_later() {
+              if (timeout[tag_id] !== null) {
+                clearTimeout(timeout[tag_id]);
+              }
+              if (page_input.value === '') {
+                response_tag.innerHTML = '';
+                return;
+              }
+              response_tag.innerHTML = '...';
+              timeout[tag_id] = setTimeout(check_now, 1000);
+            }
+            jQuery(page_input).on('input', check_later);
+            if (page_input.value !== '') {
+              check_now();
+            }
+          }
+          check_page_exists('<?=self::_?>_redirect_page');
+
+
+          // QUESTIONS
+
           var questions_div = document.querySelector('#<?=self::_?>_questions_div');
           var jq_questions_div = jQuery(questions_div);
           var template = document.querySelector('#<?=self::_?>_add_question_template');
@@ -892,6 +960,30 @@ class LL_survey
 
       <hr />
 
+      <h1><?=__('De-/Aktivieren', 'LL_survey')?></h1>
+
+      <form method="post" action="admin-post.php">
+        <p>Status: <code><?=$survey['active'] ? __('aktiv', 'LL_survey') : __('inaktiv', 'LL_survey')?></code></p>
+        <p class="description">
+          <?=__('Solange die Umfrage deaktiviert ist, können nur eingeloggte (WP-)Nutzer die Umfrage sehen und testen. Antworten werden nicht gespeichert.', 'LL_survey')?><br />
+          <?=__('Ist die Umfrage aktiv, kann sie nur noch eingeschränkt bearbeitet werden.', 'LL_survey')?>
+        </p>
+        <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
+        <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
+        <input type="hidden" name="de_activate" value="<?=$survey['active'] ? '0' : '1'?>" />
+        <?=wp_nonce_field(self::_ . '_survey_de_activate')?>
+        <?php
+        if ($survey['active']) {
+          submit_button(__('Umfrage deaktivieren und bisherige Antworten löschen', 'LL_survey'), '');
+        }
+        else {
+          submit_button(__('Umfrage aktivieren', 'LL_survey'), '');
+        }
+        ?>
+      </form>
+
+      <hr />
+
       <h1><?=__('Löschen', 'LL_survey')?></h1>
 
       <form method="post" action="admin-post.php">
@@ -924,9 +1016,9 @@ class LL_survey
         $survey_id = $_POST['survey_id'];
         self::db_update_survey($survey_id, [
           'title' => $_POST['title'] ?? 0,
-          'preview' => $_POST['preview'] ? 1 : 0,
           'start' => $_POST['start'] ?: null,
-          'end' => $_POST['end'] ?: null]);
+          'end' => $_POST['end'] ?: null,
+          'redirect_page' => $_POST['redirect_page'] ?: null]);
         self::message(__('Umfragedaten aktualisiert.', 'LL_survey'));
 
         $questions = [];
@@ -1027,6 +1119,21 @@ class LL_survey
         exit;
       }
 
+      else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_survey_de_activate')) {
+        if ($_POST['de_activate']) {
+          self::db_create_survey_table($_POST['survey_id']);
+        }
+        else {
+          $table_name = self::db_(self::table_answers . $_POST['survey_id']);
+          self::_db_delete_table($table_name);
+          self::message('Datenbank für Umfrage gelöscht: ' . $table_name);
+        }
+        self::db_update_survey($_POST['survey_id'], ['active' => $_POST['de_activate']]);
+        self::message($_POST['de_activate'] ? __('Umfrage aktiviert.', 'LL_survey') : __('Umfrage deaktiviert.', 'LL_survey'));
+        wp_redirect(self::admin_url() . self::admin_page_survey_edit . $_POST['survey_id']);
+        exit;
+      }
+
       else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_survey_delete')) {
         self::db_delete_survey($_POST['survey_id']);
         self::message(__('Umfrage gelöscht.', 'LL_survey'));
@@ -1038,12 +1145,73 @@ class LL_survey
     exit;
   }
 
+  static function db_create_survey_table($survey_id)
+  {
+    $questions = self::db_get_questions_by_survey($survey_id, ['id', 'type', 'extra']);
+    $q_values = [];
+    foreach ($questions as $q) {
+      $sql_type = null;
+      switch ($q['type']) {
+        case self::q_type_text:
+          switch ($q['extra']) {
+            case 'number':
+              $sql_type = 'int';
+              break;
+            case 'date':
+              $sql_type = 'date';
+              break;
+            case 'time':
+              $sql_type = 'time';
+              break;
+            case 'datetime-local':
+              $sql_type = 'datetime';
+              break;
+            case 'email':
+              $sql_type = 'varchar(200)';
+              break;
+            case 'url':
+              $sql_type = 'varchar(1000)';
+              break;
+            default: // pattern
+              $sql_type = 'text';
+          }
+          break;
+        case self::q_type_select:
+        case self::q_type_multiselect:
+          $sql_type = 'text';
+          break;
+        case self::q_type_check:
+          $sql_type = 'boolean';
+          break;
+        default: // separator
+      }
+      if (!is_null($sql_type)) {
+        $q_values[] = self::escape_key('q_' . $q['id']) . ' ' . $sql_type;
+      }
+    }
+
+    global $wpdb;
+    $table_name = self::db_(self::table_answers . $survey_id);
+    $sql_query = '
+      CREATE TABLE ' . self::escape_key($table_name) . ' (
+        `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+        `survey` int(10) UNSIGNED NOT NULL,
+        `time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ' . implode(', ', $q_values) . ',
+        PRIMARY KEY (`id`),
+        FOREIGN KEY (`survey`) REFERENCES ' . self::escape_key(self::db_(self::table_surveys)) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+      ) ' . $wpdb->get_charset_collate() . ';';
+    $r = $table_name . ' : ' . ($wpdb->query($sql_query) ? 'OK' : $wpdb->last_error . '<hr />' . $wpdb->last_query);
+
+    self::message('Datenbank für Umfrage eingerichtet: ' . $r);
+  }
+
 
 
   // surveys
   // - id
   // - name
-  // - preview
+  // - active
   // - start
   // - end
   // questions
@@ -1084,7 +1252,7 @@ class LL_survey
     }
 
     ob_start();
-    if (!$survey['preview'] || is_user_logged_in()) {
+    if ($survey['active'] || is_user_logged_in()) {
 
       function print_navigation_buttons($max_num_matrix_options, $back, $next) {
         ?>
@@ -1124,6 +1292,7 @@ class LL_survey
       <style>
         .<?=self::_?> th { width: 50%; }
       </style>
+      <form method="post" action="">
       <table class="<?=self::_?>">
       <?php
       $single_input_row_style = 'colspan="' . $max_num_matrix_options . '" style="width: 50%;"';
@@ -1153,7 +1322,18 @@ class LL_survey
             <tr>
               <th class="<?=self::_?>_question"><?=$question['text']?></th>
               <td class="<?=self::_?>_question_text" <?=$single_input_row_style?>>
-                <input type="text" <?=$tag_name_and_id?> pattern="<?=$extra?>" />
+                <?php
+                if (in_array($extra, self::q_special_text_types)) {
+                  ?>
+                  <input type="<?=$extra?>" <?=$tag_name_and_id?> class="text-input-field" />
+                  <?php
+                }
+                else {
+                  ?>
+                  <input type="text" pattern="<?=$extra?>" <?=$tag_name_and_id?> />
+                  <?php
+                }
+                ?>
               </td>
             </tr>
             <?php
@@ -1268,19 +1448,22 @@ class LL_survey
       print_navigation_buttons($max_num_matrix_options, !$is_first_separator, false);
       ?>
       </table>
+      </form>
       <script>
         jQuery(function() {
           jQuery('.<?=self::_?>_btn_back').click(function() {
             var current_table = this.closest('table.<?=self::_?>');
-            var previous_table = current_table.previousElementSibling;
-            current_table.style.display = 'none';
-            previous_table.style.display = '';
+            var next_table = current_table.previousElementSibling;
+            jQuery(current_table).fadeOut(200, function() {
+              jQuery(next_table).fadeIn(200);
+            })
           });
           jQuery('.<?=self::_?>_btn_next').click(function() {
             var current_table = this.closest('table.<?=self::_?>');
             var next_table = current_table.nextElementSibling;
-            current_table.style.display = 'none';
-            next_table.style.display = '';
+            jQuery(current_table).fadeOut(200, function() {
+              jQuery(next_table).fadeIn(200);
+            })
           });
         });
       </script>
@@ -1289,6 +1472,20 @@ class LL_survey
 //      print_r($questions);
     }
     return ob_get_clean();
+  }
+
+  // answers
+  // - id
+  // - question
+  // - text
+  // - time
+  static function finish_survey($request)
+  {
+//    if (isset($request['survey'])) {
+//      self::_
+//      wp_redirect($request->get_header('referer'));
+//    }
+    return '';
   }
 
 
@@ -1319,6 +1516,9 @@ class LL_survey
     {
       register_rest_route(self::_ . '/v1', 'get', [
         'callback' => self::_('json_get')
+      ]);
+      register_rest_route(self::_ . '/v1', 'finish', [
+        'callback' => self::_('finish_survey')
       ]);
     });
   }
