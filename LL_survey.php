@@ -250,12 +250,17 @@ class LL_survey
       return '';
     }
     $ret = [];
-    foreach ($where as $key => &$value) {
-      if (isset($value[1])) {
-        $ret[] = self::escape_key($key) . ' ' . $value[0] . ' ' . self::escape_value($value[1]);
-      }
-      else {
-        $ret[] = self::escape_key($key) . ' ' . $value[0];
+    if (is_string($where)) {
+      $ret[] = $where;
+    }
+    else {
+      foreach ($where as $key => &$value) {
+        if (isset($value[1])) {
+          $ret[] = self::escape_key($key) . ' ' . $value[0] . ' ' . self::escape_value($value[1]);
+        }
+        else {
+          $ret[] = self::escape_key($key) . ' ' . $value[0];
+        }
       }
     }
     return ' WHERE ' . implode(' AND ', $ret);
@@ -367,7 +372,7 @@ class LL_survey
   static function db_update_survey($survey_id, $data) { return self::_db_update(self::db_(self::table_surveys), $data, ['id' => ['=', $survey_id]]); }
   static function db_get_surveys($what = [['*']]) { return self::_db_select(self::db_(self::table_surveys), $what); }
   static function db_get_surveys_with_count() { return self::_db_select([[self::db_(self::table_surveys), 'as' => 's'], [self::db_(self::table_questions), 'as' => 'q'], 'left join' => '`s`.`id` = `q`.`survey`'], [['.' => 's', 'id', 'as' => 'id'], ['.' => 's', 'title', 'as' => 'title'], ['.' => 's', 'active', 'as' => 'active'], ['.' => 's', 'start', 'as' => 'start'], ['.' => 's', 'end', 'as' => 'end'], [['COUNT(0)'], 'as' => 'num-questions']], [], [['.' => 's', 'id']]); }
-  static function db_get_survey_by_id($survey_id) { return self::_db_select_row(self::db_(self::table_surveys), ['id', 'title', 'active', 'start', 'end', 'redirect_page', ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']], ['id' => ['=', $survey_id]]); }
+  static function db_get_survey_by_id($survey_id, $what = ['id', 'title', 'active', 'start', 'end', 'redirect_page', ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']]) { return self::_db_select_row(self::db_(self::table_surveys), $what, ['id' => ['=', $survey_id]]); }
   static function db_delete_survey($survey_id) { return self::_db_delete(self::db_(self::table_surveys), ['id' => ['=', $survey_id]]); }
 
   // questions
@@ -378,11 +383,18 @@ class LL_survey
   // - extra
   // - reuse_extra
   // - in_matrix
+  // - required
   // - position
-  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $in_matrix, $position) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'position' => $position]); }
-  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $in_matrix, $position) { return self::_db_update(self::db_(self::table_questions), ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'position' => $position], ['id' => ['=', $question_id]]); }
+  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $in_matrix, $required, $position) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'required' => $required, 'position' => $position]); }
+  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $in_matrix, $required, $position) { return self::_db_update(self::db_(self::table_questions), ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'required' => $required, 'position' => $position], ['id' => ['=', $question_id]]); }
   static function db_delete_question($question_id) { return self::_db_delete(self::db_(self::table_questions), ['id' => ['=', $question_id]]); }
   static function db_get_questions_by_survey($survey_id, $what = [['*']]) { return self::_db_select(self::db_(self::table_questions), $what, ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
+  static function db_get_questions_by_survey_with_reuse_extra($survey_id) {
+	  return self::_db_select(
+//    return self::_db_build_select(
+	    [[self::db_(self::table_questions), 'as' => 'q'], [self::db_(self::table_questions), 'as' => 'qq'], 'left join' => '`q`.`reuse_extra` = `qq`.`id`'],
+      [['.' => 'q', ['*']], ['.' => 'qq', 'extra', 'as' => 'indirect_extra']],
+      '`q`.`survey` = ' . self::escape_value($survey_id)); }
 
   // answers
   // - id
@@ -418,6 +430,7 @@ class LL_survey
         `extra` text NULL,
         `reuse_extra` int(10) UNSIGNED NULL,
         `in_matrix` tinyint(1) NOT NULL,
+        `required` tinyint(1) NOT NULL,
         `position` int(10) UNSIGNED NOT NULL,
         PRIMARY KEY (`id`),
         FOREIGN KEY (`survey`) REFERENCES ' . self::escape_key(self::db_(self::table_surveys)) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -727,10 +740,11 @@ class LL_survey
                       <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=$question['extra'] ?? ''?>" />
                       <textarea name="q_extra_multiline_<?=$i?>" rows="1" placeholder="<?=__('Option 1...')?>"><?=$question['extra'] ?? ''?></textarea>
                       <div class="reuse_extra_div">
-                        <label style="margin-right: 20px;"><input type="checkbox" name="q_reuse_extra_<?=$i?>" <?=is_null($question['reuse_extra']) ? '' : 'checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
-                        <label><input type="checkbox" name="q_in_matrix_<?=$i?>" <?=$question['in_matrix'] ? 'checked' : ''?> /> <?=__('Zusammen mit der Frage darüber als Matrix anzeigen', 'LL_survey')?></label>
+                        <label style="margin-right: 20px;"><input type="checkbox" name="q_reuse_extra_<?=$i?>"<?=is_null($question['reuse_extra']) ? '' : ' checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
+                        <label><input type="checkbox" name="q_in_matrix_<?=$i?>"<?=$question['in_matrix'] ? ' checked' : ''?> /> <?=__('Zusammen mit der Frage darüber als Matrix anzeigen', 'LL_survey')?></label>
                       </div>
                     </div>
+                    <label><input type="checkbox" name="q_required_<?=$i?>"<?=$question['required'] ? ' checked' : ''?> /> <?=__('Pflichtfeld', 'LL_survey')?></label>
                   </div>
                 </div>
 <?php
@@ -1035,7 +1049,8 @@ class LL_survey
             'text' => null,
             'extra' => null,
             'reuse_extra' => false,
-            'in_matrix' => false
+            'in_matrix' => false,
+            'required' => !!$_POST['q_required_' . $i]
           ];
           if ($question['type'] === self::q_type_delete) {
             if (!is_null($question['id'])) {
@@ -1098,10 +1113,10 @@ class LL_survey
             $previous_id = null;
           }
           if (is_null($question['id'])) {
-            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $i);
+            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $question['required'], $i);
           }
           else {
-            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $i);
+            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $question['required'], $i);
           }
           $previous_type = $question['type'];
           if (!$question['reuse_extra']) {
@@ -1222,6 +1237,7 @@ class LL_survey
   // - extra
   // - reuse_extra
   // - in_matrix
+  // - required
   // - position
   static function shortcode_SURVEY($atts)
   {
@@ -1254,7 +1270,7 @@ class LL_survey
     ob_start();
     if ($survey['active'] || is_user_logged_in()) {
 
-      function print_navigation_buttons($max_num_matrix_options, $back, $next) {
+      function print_navigation_buttons($max_num_matrix_options, $back, $next, $submit, $submit_enabled) {
         ?>
         <tr class="<?=self::_?>_next_page">
           <td colspan="<?=$max_num_matrix_options + 1?>" style="width: 100%;">
@@ -1264,11 +1280,14 @@ class LL_survey
               <input type="button" class="<?=self::_?>_btn_back" value="<?=__('Zurück', 'LL_survey')?>" />
               <?php
             }
-            ?>
-            <?php
             if ($next) {
               ?>
               <input type="button" class="<?=self::_?>_btn_next" value="<?=__('Weiter', 'LL_survey')?>" />
+              <?php
+            }
+            if ($submit) {
+              ?>
+              <input type="submit" value="<?=__('Meine Antworten jetzt absenden', 'LL_survey')?>"<?=$submit_enabled ? '' : ' disabled'?> />
               <?php
             }
             ?>
@@ -1292,25 +1311,27 @@ class LL_survey
       <style>
         .<?=self::_?> th { width: 50%; }
       </style>
-      <form method="post" action="">
+      <form method="post" action="<?=self::json_url()?>finish">
+      <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
       <table class="<?=self::_?>">
       <?php
       $single_input_row_style = 'colspan="' . $max_num_matrix_options . '" style="width: 50%;"';
       $matrix_input_row_style = 'style="' . (50 / $max_num_matrix_options) . '%;"';
-      $is_first_separator = true;
+      $without_separator = true;
       foreach ($questions as $idx => &$question) {
         $tag_id_value = 'q_' . $question['id'];
         $tag_name = 'name="' . $tag_id_value . '"';
         $tag_name_and_id = $tag_name . ' id="' . $tag_id_value . '"';
         $extra = ($question['reuse_extra'] ? $questions_by_id[$question['reuse_extra']] : $question)['extra'];
+        $required = $question['required'] ? 'required' : '';
         switch ($question['type']) {
           case self::q_type_separator:
             $back = true;
-            if ($is_first_separator) {
-              $is_first_separator = false;
+            if ($without_separator) {
+              $without_separator = false;
               $back = false;
             }
-            print_navigation_buttons($max_num_matrix_options, $back, true);
+            print_navigation_buttons($max_num_matrix_options, $back, true, false, false);
             ?>
           </table>
           <table class="<?=self::_?>" style="display: none;">
@@ -1325,12 +1346,12 @@ class LL_survey
                 <?php
                 if (in_array($extra, self::q_special_text_types)) {
                   ?>
-                  <input type="<?=$extra?>" <?=$tag_name_and_id?> class="text-input-field" />
+                  <input type="<?=$extra?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required?> />
                   <?php
                 }
                 else {
                   ?>
-                  <input type="text" pattern="<?=$extra?>" <?=$tag_name_and_id?> />
+                  <input type="text" <?=$extra ? 'pattern="' . $extra . '"' : ''?> <?=$tag_name_and_id?> <?=$required?> />
                   <?php
                 }
                 ?>
@@ -1344,7 +1365,7 @@ class LL_survey
             <tr>
               <th class="<?=self::_?>_question"><?=$question['text']?></th>
               <td class="<?=self::_?>_question_check" <?=$single_input_row_style?>>
-                <input type="checkbox" <?=$tag_name_and_id?> /><label for="<?=$tag_id_value?>" data-on="<?=$extra[0] ?? __('Ja', 'LL_mailer')?>" data-off="<?=$extra[1] ?? __('Nein', 'LL_mailer')?>"></label>
+                <input type="checkbox" <?=$tag_name_and_id?> <?=$required?> /><label for="<?=$tag_id_value?>" data-on="<?=$extra[0] ?? __('Ja', 'LL_mailer')?>" data-off="<?=$extra[1] ?? __('Nein', 'LL_mailer')?>"></label>
               </td>
             </tr>
             <?php
@@ -1376,7 +1397,7 @@ class LL_survey
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?>
                   <td class="<?=self::_?>_question_select <?=self::_?>_question_select_matrix" <?=$matrix_input_row_style?>>
-                    <input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"></label>
+                    <input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"></label>
                   </td>
                   <?php
                 }
@@ -1393,7 +1414,7 @@ class LL_survey
                 foreach ($extra as $idx => &$option) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?>
-                  <input type="radio" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br />
+                  <input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br />
                   <?php
                 }
                 ?>
@@ -1434,7 +1455,7 @@ class LL_survey
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   $tag_name_and_id_with_idx = 'name="' . $tag_id_value_with_idx . '" id="' . $tag_id_value_with_idx . '"';
                   ?>
-                  <input type="checkbox" <?=$tag_name_and_id_with_idx?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br />
+                  <input type="checkbox" <?=$tag_name_and_id_with_idx?> <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label><br />
                   <?php
                 }
                 ?>
@@ -1445,25 +1466,36 @@ class LL_survey
             break;
         }
       }
-      print_navigation_buttons($max_num_matrix_options, !$is_first_separator, false);
+      print_navigation_buttons($max_num_matrix_options, !$without_separator, false, true, $without_separator);
       ?>
       </table>
       </form>
       <script>
         jQuery(function() {
+          var form = document.querySelector('.<?=self::_?>').closest('form');
+          var submit_button = form.querySelector('input[type="submit"]');
           jQuery('.<?=self::_?>_btn_back').click(function() {
             var current_table = this.closest('table.<?=self::_?>');
             var next_table = current_table.previousElementSibling;
             jQuery(current_table).fadeOut(200, function() {
+              submit_button.disabled = true;
               jQuery(next_table).fadeIn(200);
             })
           });
           jQuery('.<?=self::_?>_btn_next').click(function() {
             var current_table = this.closest('table.<?=self::_?>');
-            var next_table = current_table.nextElementSibling;
-            jQuery(current_table).fadeOut(200, function() {
-              jQuery(next_table).fadeIn(200);
-            })
+            var valid = true;
+            current_table.querySelectorAll('input').forEach(function(input) {
+              if (valid)
+                valid &= input.reportValidity();
+            });
+            if (valid) {
+              var next_table = current_table.nextElementSibling;
+              jQuery(current_table).fadeOut(200, function () {
+                submit_button.disabled = !next_table.querySelector('input[type="submit"]');
+                jQuery(next_table).fadeIn(200);
+              });
+            }
           });
         });
       </script>
@@ -1474,6 +1506,22 @@ class LL_survey
     return ob_get_clean();
   }
 
+  // surveys
+  // - id
+  // - name
+  // - active
+  // - start
+  // - end
+  // questions
+  // - id
+  // - survey
+  // - text
+  // - type
+  // - extra
+  // - reuse_extra
+  // - in_matrix
+  // - required
+  // - position
   // answers
   // - id
   // - question
@@ -1481,10 +1529,37 @@ class LL_survey
   // - time
   static function finish_survey($request)
   {
-//    if (isset($request['survey'])) {
-//      self::_
-//      wp_redirect($request->get_header('referer'));
-//    }
+    if (isset($request['survey_id'])) {
+      $survey_id = $request['survey_id'];
+      $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
+      $answers = [];
+      foreach ($questions as &$q) {
+        $q_id = 'q_' . $q['id'];
+        $q_extra = explode("\n", $q['extra'] ?: $q['indirect_extra']) ?: [];
+        switch ($q['type']) {
+          case self::q_type_separator:
+            break;
+          case self::q_type_check:
+            $answers[$q['text']] = '(' . $q['type'] . ') ' . isset($request[$q_id]);
+            break;
+          case self::q_type_multiselect:
+            $answers[$q['text']] = '(' . $q['type'] . ') ';
+            for ($idx = 0; $idx < count($q_extra); ++$idx) {
+              if (isset($request[$q_id . '_' . $idx])) {
+                $answers[$q['text']] .= $idx . ', ';
+              }
+            }
+            break;
+          default:
+            $answers[$q['text']] = '(' . $q['type'] . ') ' . $request[$q_id];
+        }
+      }
+
+      return $answers;
+      $redirect_page = self::db_get_survey_by_id($survey_id, ['redirect_page'])['redirect_page'];
+      return $redirect_page;
+//      wp_redirect(get_permalink(get_page_by_path($redirect_page)));
+    }
     return '';
   }
 
@@ -1518,7 +1593,8 @@ class LL_survey
         'callback' => self::_('json_get')
       ]);
       register_rest_route(self::_ . '/v1', 'finish', [
-        'callback' => self::_('finish_survey')
+        'callback' => self::_('finish_survey'),
+        'methods' => 'POST'
       ]);
     });
   }
