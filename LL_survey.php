@@ -40,12 +40,15 @@ class LL_survey
   const q_type_check = 'check';
   const q_type_select = 'select';
   const q_type_multiselect = 'multiselect';
-  const q_type_separator = '-';
-  const q_type_delete = 'x';
+
+  const q_type_special_hint = 'hint';
+  const q_type_special_separator = '-';
+  const q_type_special_delete = 'x';
 
   const q_types_with_extra_singleline = [self::q_type_text];
   const q_types_with_extra_multiline = [self::q_type_check, self::q_type_select, self::q_type_multiselect];
   const q_types_select = [self::q_type_select, self::q_type_multiselect];
+  const q_types_special = [self::q_type_special_hint, self::q_type_special_separator, self::q_type_special_delete];
 
   const q_special_text_types = ['number', 'date', 'time', 'datetime-local', 'email', 'url'];
 
@@ -58,7 +61,7 @@ class LL_survey
 
 	static function _($member_function) { return [self::_, $member_function]; }
 
-	static function is_question($type) { return self::q_type_separator === $type; }
+	static function is_question($type) { return self::q_type_special_separator === $type; }
 
 	static function db_($table) { global $wpdb; return $wpdb->prefix . $table; }
 	static function js_($array) { return "'" . implode("', '", $array) . "'"; }
@@ -378,15 +381,15 @@ class LL_survey
   // questions
   // - id
   // - survey
-  // - text
+  // - position
   // - type
+  // - text
   // - extra
   // - reuse_extra
   // - in_matrix
   // - required
-  // - position
-  static function db_add_question($survey_id, $text, $type, $extra, $reuse_extra, $in_matrix, $required, $position) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'required' => $required, 'position' => $position]); }
-  static function db_update_question($question_id, $text, $type, $extra, $reuse_extra, $in_matrix, $required, $position) { return self::_db_update(self::db_(self::table_questions), ['text' => $text, 'type' => $type, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'required' => $required, 'position' => $position], ['id' => ['=', $question_id]]); }
+  static function db_add_question($survey_id, $position, $type, $text, $extra, $reuse_extra, $in_matrix, $required) { return self::_db_insert(self::db_(self::table_questions), ['survey' => $survey_id, 'position' => $position, 'type' => $type, 'text' => $text, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'required' => $required]); }
+  static function db_update_question($question_id, $position, $type, $text, $extra, $reuse_extra, $in_matrix, $required) { return self::_db_update(self::db_(self::table_questions), ['position' => $position, 'type' => $type, 'text' => $text, 'extra' => $extra, 'reuse_extra' => $reuse_extra, 'in_matrix' => $in_matrix, 'required' => $required], ['id' => ['=', $question_id]]); }
   static function db_delete_question($question_id) { return self::_db_delete(self::db_(self::table_questions), ['id' => ['=', $question_id]]); }
   static function db_get_questions_by_survey($survey_id, $what = [['*']]) { return self::_db_select(self::db_(self::table_questions), $what, ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
   static function db_get_questions_by_survey_with_reuse_extra($survey_id) {
@@ -425,13 +428,13 @@ class LL_survey
       CREATE TABLE ' . self::escape_key(self::db_(self::table_questions)) . ' (
         `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
         `survey` int(10) UNSIGNED NOT NULL,
-        `text` text NULL,
+        `position` int(10) UNSIGNED NOT NULL,
         `type` varchar(20) NOT NULL,
+        `text` text NULL,
         `extra` text NULL,
         `reuse_extra` int(10) UNSIGNED NULL,
-        `in_matrix` tinyint(1) NOT NULL,
-        `required` tinyint(1) NOT NULL,
-        `position` int(10) UNSIGNED NOT NULL,
+        `in_matrix` tinyint(1) NULL,
+        `required` tinyint(1) NULL,
         PRIMARY KEY (`id`),
         FOREIGN KEY (`survey`) REFERENCES ' . self::escape_key(self::db_(self::table_surveys)) . ' (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
         FOREIGN KEY (`reuse_extra`) REFERENCES ' . self::escape_key(self::db_(self::table_questions)) . ' (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
@@ -730,8 +733,10 @@ class LL_survey
                     <option value="<?=self::q_type_check?>" <?=$t == self::q_type_check ? 'selected' : ''?>><?=__('Check', 'LL_survey')?></option>
                     <option value="<?=self::q_type_select?>" <?=$t == self::q_type_select ? 'selected' : ''?>><?=__('Auswahl', 'LL_survey')?></option>
                     <option value="<?=self::q_type_multiselect?>" <?=$t == self::q_type_multiselect ? 'selected' : ''?>><?=__('Mehrfachauswahl', 'LL_survey')?></option>
-                    <option value="<?=self::q_type_separator?>" <?=$t == self::q_type_separator ? 'selected' : ''?>>(<?=__('Seitenwechsel', 'LL_survey')?>)</option>
-                    <option value="<?=self::q_type_delete?>">(<?=__('Löschen', 'LL_survey')?>)</option>
+                    <option disabled>-</option>
+                    <option value="<?=self::q_type_special_hint?>" <?=$t == self::q_type_special_hint ? 'selected' : ''?>>(<?=__('Hinweistext', 'LL_survey')?>)</option>
+                    <option value="<?=self::q_type_special_separator?>" <?=$t == self::q_type_special_separator ? 'selected' : ''?>>(<?=__('Seitenwechsel', 'LL_survey')?>)</option>
+                    <option value="<?=self::q_type_special_delete?>">(<?=__('Löschen', 'LL_survey')?>)</option>
                   </select>
                   <hr style="display: none;" />
                   <div class="input_div" style="display: none;">
@@ -743,8 +748,8 @@ class LL_survey
                         <label style="margin-right: 20px;"><input type="checkbox" name="q_reuse_extra_<?=$i?>"<?=is_null($question['reuse_extra']) ? '' : ' checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
                         <label><input type="checkbox" name="q_in_matrix_<?=$i?>"<?=$question['in_matrix'] ? ' checked' : ''?> /> <?=__('Zusammen mit der Frage darüber als Matrix anzeigen', 'LL_survey')?></label>
                       </div>
+                      <label><input type="checkbox" name="q_required_<?=$i?>"<?=$question['required'] ? ' checked' : ''?> /> <?=__('Pflichtfeld', 'LL_survey')?></label>
                     </div>
-                    <label><input type="checkbox" name="q_required_<?=$i?>"<?=$question['required'] ? ' checked' : ''?> /> <?=__('Pflichtfeld', 'LL_survey')?></label>
                   </div>
                 </div>
 <?php
@@ -847,22 +852,29 @@ class LL_survey
             var select_type = this;
             var separator_hr = select_type.parentNode.querySelector('hr');
             var input_div = select_type.parentNode.querySelector('.input_div');
+            var extra_div = input_div.querySelector('.extra_div');
             var extra_singleline_input = jQuery(input_div.querySelector('[name^="q_extra_singleline"]'));
             var extra_multiline_textarea = jQuery(input_div.querySelector('[name^="q_extra_multiline_"]'));
             var reuse_extra_check = jQuery(input_div.querySelector('[name^="q_reuse_extra_"]'));
             var in_matrix_check = jQuery(input_div.querySelector('[name^="q_in_matrix_"]'));
 
-            if (select_type.value === '<?=self::q_type_separator?>') {
+            if (select_type.value === '<?=self::q_type_special_delete?>') {
+              separator_hr.style.display = 'none';
+              input_div.style.display = 'none';
+            }
+            else if (select_type.value === '<?=self::q_type_special_separator?>') {
               separator_hr.style.display = '';
               input_div.style.display = 'none';
             }
-            else if (select_type.value === '<?=self::q_type_delete?>') {
+            else if (select_type.value === '<?=self::q_type_special_hint?>') {
               separator_hr.style.display = 'none';
-              input_div.style.display = 'none';
+              input_div.style.display = '';
+              extra_div.style.display = 'none';
             }
             else {
               separator_hr.style.display = 'none';
               input_div.style.display = '';
+              extra_div.style.display = '';
               if ([<?=self::js_(self::q_types_with_extra_singleline)?>].includes(select_type.value)) {
                 extra_singleline_input.attr('data-visible', '1');
                 extra_multiline_textarea.attr('data-visible', null);
@@ -1056,11 +1068,11 @@ class LL_survey
             'type' => $_POST['q_type_' . $i],
             'text' => null,
             'extra' => null,
-            'reuse_extra' => false,
-            'in_matrix' => false,
-            'required' => !!$_POST['q_required_' . $i]
+            'reuse_extra' => null,
+            'in_matrix' => null,
+            'required' => null
           ];
-          if ($question['type'] === self::q_type_delete) {
+          if ($question['type'] === self::q_type_special_delete) {
             if (!is_null($question['id'])) {
               self::db_delete_question($question['id']);
               ++$questions_deleted;
@@ -1069,14 +1081,17 @@ class LL_survey
               ++$questions_not_added;
           }
           else {
-            if ($question['type'] !== self::q_type_separator) {
+            if ($question['type'] !== self::q_type_special_separator) {
               $question['text'] = trim($_POST['q_text_' . $i]);
-              $can_have_singleline_extra = in_array($question['type'], self::q_types_with_extra_singleline);
-              $can_have_multiline_extra = in_array($question['type'], self::q_types_with_extra_multiline);
-              if ($can_have_singleline_extra) $question['extra'] = $_POST['q_extra_singleline_' . $i] ?: null;
-              else if ($can_have_multiline_extra) $question['extra'] = $_POST['q_extra_multiline_' . $i] ?: null;
-              $question['reuse_extra'] = ($can_have_singleline_extra || $can_have_multiline_extra) && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
-              $question['in_matrix'] = $question['reuse_extra'] && $_POST['q_in_matrix_' . $i];
+              if ($question['type'] !== self::q_type_special_hint) {
+                $can_have_singleline_extra = in_array($question['type'], self::q_types_with_extra_singleline);
+                $can_have_multiline_extra = in_array($question['type'], self::q_types_with_extra_multiline);
+                if ($can_have_singleline_extra) $question['extra'] = $_POST['q_extra_singleline_' . $i] ?: null;
+                else if ($can_have_multiline_extra) $question['extra'] = $_POST['q_extra_multiline_' . $i] ?: null;
+                $question['reuse_extra'] = ($can_have_singleline_extra || $can_have_multiline_extra) && is_null($question['extra']) && $_POST['q_reuse_extra_' . $i];
+                $question['in_matrix'] = $question['reuse_extra'] && $_POST['q_in_matrix_' . $i];
+                $question['required'] = !!$_POST['q_required_' . $i];
+              }
             }
             $questions[intval($_POST['q_order_' . $i])] = $question;
             if (!is_null($question['id']))
@@ -1090,11 +1105,11 @@ class LL_survey
         ksort($questions);
 
         // remove double separators
-        $last_was_separator = reset($questions)['type'] === self::q_type_separator;
+        $last_was_separator = reset($questions)['type'] === self::q_type_special_separator;
         while (true) {
           $q = next($questions);
           if ($q === false) break;
-          $q_is_separator = $q['type'] === self::q_type_separator;
+          $q_is_separator = $q['type'] === self::q_type_special_separator;
           if ($last_was_separator && $q_is_separator) {
             unset($questions[key($questions)]);
             ++$separators_removed;
@@ -1102,11 +1117,11 @@ class LL_survey
           $last_was_separator = $q_is_separator;
         };
         // remove separators at begin and end
-        if (reset($questions)['type'] === self::q_type_separator) {
+        if (reset($questions)['type'] === self::q_type_special_separator) {
           unset($questions[key($questions)]);
           ++$separators_removed;
         }
-        if (end($questions)['type'] === self::q_type_separator) {
+        if (end($questions)['type'] === self::q_type_special_separator) {
           unset($questions[key($questions)]);
           ++$separators_removed;
         }
@@ -1121,10 +1136,10 @@ class LL_survey
             $previous_id = null;
           }
           if (is_null($question['id'])) {
-            $question['id'] = self::db_add_question($survey_id, $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $question['required'], $i);
+            $question['id'] = self::db_add_question($survey_id, $i, $question['type'], $question['text'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $question['required']);
           }
           else {
-            self::db_update_question($question['id'], $question['text'], $question['type'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $question['required'], $i);
+            self::db_update_question($question['id'], $i, $question['type'], $question['text'], $question['extra'], $question['reuse_extra'] ? $previous_id : null, $question['in_matrix'], $question['required']);
           }
           $previous_type = $question['type'];
           if (!$question['reuse_extra']) {
@@ -1206,7 +1221,7 @@ class LL_survey
         case self::q_type_check:
           $sql_type = 'boolean';
           break;
-        default: // separator
+        default: // separator or hint
       }
       if (!is_null($sql_type)) {
         $q_values[] = self::escape_key('q_' . $q['id']) . ' ' . $sql_type;
@@ -1238,13 +1253,13 @@ class LL_survey
   // questions
   // - id
   // - survey
-  // - text
+  // - position
   // - type
+  // - text
   // - extra
   // - reuse_extra
   // - in_matrix
   // - required
-  // - position
   static function shortcode_SURVEY($atts)
   {
     $what = $survey_id = strtolower($atts[0]);
@@ -1321,6 +1336,7 @@ class LL_survey
       <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
       <table class="<?=self::_?>">
       <?php
+      $hint_row_style = 'colspan="' . ($max_num_matrix_options + 1) . '"';
       $single_input_row_style = 'colspan="' . $max_num_matrix_options . '" style="width: 50%;"';
       $matrix_input_row_style = 'style="' . (50 / $max_num_matrix_options) . '%;"';
       $without_separator = true;
@@ -1332,7 +1348,7 @@ class LL_survey
         $required = $question['required'] ? 'required' : '';
         $q_type = 'data-question="1" data-question-type="' . $question['type'] . '" ' . (($question['in_matrix'] || $question['is_first_matrix_row']) ? 'data-question-matrix="1"' : '');
         switch ($question['type']) {
-          case self::q_type_separator:
+          case self::q_type_special_separator:
             $back = true;
             if ($without_separator) {
               $without_separator = false;
@@ -1342,6 +1358,14 @@ class LL_survey
             ?>
           </table>
           <table class="<?=self::_?>" style="display: none;">
+            <?php
+            break;
+
+          case self::q_type_special_hint:
+            ?>
+            <tr>
+              <th class="<?=self::_?>_question <?=self::_?>_question_hint" <?=$hint_row_style?>><?=$question['text']?></th>
+            </tr>
             <?php
             break;
 
@@ -1568,13 +1592,13 @@ class LL_survey
   // questions
   // - id
   // - survey
-  // - text
+  // - position
   // - type
+  // - text
   // - extra
   // - reuse_extra
   // - in_matrix
   // - required
-  // - position
   // answers
   // - id
   // - question
@@ -1592,7 +1616,7 @@ class LL_survey
           $q_id = 'q_' . $q['id'];
           $q_extra = explode("\n", $q['extra'] ?: $q['indirect_extra']) ?: [];
           switch ($q['type']) {
-            case self::q_type_separator:
+            case self::q_type_special_separator:
               break;
             case self::q_type_check:
               $answers[$q_id] = isset($request[$q_id]);
