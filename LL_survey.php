@@ -45,13 +45,30 @@ class LL_survey
   const q_type_special_separator = '-';
   const q_type_special_delete = 'x';
 
+  static function printable($slug)
+  {
+    switch ($slug) {
+      case self::q_type_text: return __('Text', 'LL_survey');
+      case self::q_type_check: return __('Ja/Nein', 'LL_survey');
+      case self::q_type_select: return __('Auswahl', 'LL_survey');
+      case self::q_type_multiselect: return __('Mehrfachauswahl', 'LL_survey');
+      case self::q_type_special_hint: return __('(Hinweistext)', 'LL_survey');
+      case self::q_type_special_separator: return __('(Seitenwechsel)', 'LL_survey');
+      case self::q_type_special_delete: return __('(Löschen)', 'LL_survey');
+      case self::q_special_text_multiline: return self::q_special_text_multiline . __('ANZAHL-ZEILEN', 'LL_survey');
+      default: return '(non-printable slug)';
+    }
+  }
+
   const q_types_with_extra_singleline = [self::q_type_text];
   const q_types_with_extra_multiline = [self::q_type_check, self::q_type_select, self::q_type_multiselect];
   const q_types_select = [self::q_type_select, self::q_type_multiselect];
   const q_types_special = [self::q_type_special_hint, self::q_type_special_separator, self::q_type_special_delete];
 
+  const q_special_text_multiline = 'multiline';
   const q_special_text_types = ['number', 'date', 'time', 'datetime-local', 'email', 'url'];
 
+  const pattern_multiline = ['/^' . self::q_special_text_multiline . '(\w+(\d+))?$/', '$2'];
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
@@ -60,8 +77,6 @@ class LL_survey
 
 
 	static function _($member_function) { return [self::_, $member_function]; }
-
-	static function is_question($type) { return self::q_type_special_separator === $type; }
 
 	static function db_($table) { global $wpdb; return $wpdb->prefix . $table; }
 	static function js_($array) { return "'" . implode("', '", $array) . "'"; }
@@ -374,7 +389,7 @@ class LL_survey
   static function db_add_survey($title) { return self::_db_insert(self::db_(self::table_surveys), ['title' => $title]); }
   static function db_update_survey($survey_id, $data) { return self::_db_update(self::db_(self::table_surveys), $data, ['id' => ['=', $survey_id]]); }
   static function db_get_surveys($what = [['*']]) { return self::_db_select(self::db_(self::table_surveys), $what); }
-  static function db_get_surveys_with_count() { return self::_db_select([[self::db_(self::table_surveys), 'as' => 's'], [self::db_(self::table_questions), 'as' => 'q'], 'left join' => '`s`.`id` = `q`.`survey`'], [['.' => 's', 'id', 'as' => 'id'], ['.' => 's', 'title', 'as' => 'title'], ['.' => 's', 'active', 'as' => 'active'], ['.' => 's', 'start', 'as' => 'start'], ['.' => 's', 'end', 'as' => 'end'], [['COUNT(0)'], 'as' => 'num-questions']], [], [['.' => 's', 'id']]); }
+  static function db_get_surveys_with_question_count() { return self::_db_select([[self::db_(self::table_surveys), 'as' => 's'], [self::db_(self::table_questions), 'as' => 'q'], 'left join' => '`s`.`id` = `q`.`survey`'], [['.' => 's', 'id', 'as' => 'id'], ['.' => 's', 'title', 'as' => 'title'], ['.' => 's', 'active', 'as' => 'active'], ['.' => 's', 'start', 'as' => 'start'], ['.' => 's', 'end', 'as' => 'end'], [['COUNT(0)'], 'as' => 'num-questions']], [], [['.' => 's', 'id']]); }
   static function db_get_survey_by_id($survey_id, $what = ['id', 'title', 'active', 'start', 'end', 'redirect_page', ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']]) { return self::_db_select_row(self::db_(self::table_surveys), $what, ['id' => ['=', $survey_id]]); }
   static function db_delete_survey($survey_id) { return self::_db_delete(self::db_(self::table_surveys), ['id' => ['=', $survey_id]]); }
 
@@ -405,6 +420,7 @@ class LL_survey
   // - text
   // - time
   static function db_add_answer($survey_id, $answer) { return self::_db_insert(self::db_(self::table_answers . $survey_id), $answer); }
+  static function db_count_answers($survey_id) { return self::_db_select_row(self::db_(self::table_answers . $survey_id), [[['COUNT(0)'], 'as' => 'count']])['count']; }
 
 
 
@@ -511,7 +527,7 @@ class LL_survey
 
   static function admin_page_settings()
   {
-?>
+    ?>
     <div class="wrap">
       <h1><?=__('Allgemeine Einstellungen', 'LL_survey')?></h1>
 
@@ -529,7 +545,7 @@ class LL_survey
         <?php submit_button(); ?>
       </form>
     </div>
-<?php
+    <?php
   }
 
   static function admin_page_settings_general_action()
@@ -540,17 +556,52 @@ class LL_survey
 
 
 
+  static function print_question_html($i, $question, $survey_active) {
+    $t = $question['type'];
+    $disabled = $survey_active ? 'disabled' : '';
+    ?>
+    <div id="<?=is_null($question) ? self::_ . '_add_question_template' : ''?>">
+      <input type="hidden" name="q_order_<?=$i?>" value="<?=$i?>" />
+      <input type="hidden" name="q_id_<?=$i?>" value="<?=$question['id'] ?? ''?>" />
+      <span class="dashicons dashicons-sort"></span>
+      <select name="q_type_<?=$i?>">
+        <option value="<?=self::q_type_text?>" <?=$t == self::q_type_text ? 'selected' : $disabled?>><?=self::printable(self::q_type_text)?></option>
+        <option value="<?=self::q_type_check?>" <?=$t == self::q_type_check ? 'selected' : $disabled?>><?=self::printable(self::q_type_check)?></option>
+        <option value="<?=self::q_type_select?>" <?=$t == self::q_type_select ? 'selected' : $disabled?>><?=self::printable(self::q_type_select)?></option>
+        <option value="<?=self::q_type_multiselect?>" <?=$t == self::q_type_multiselect ? 'selected' : $disabled?>><?=self::printable(self::q_type_multiselect)?></option>
+        <option disabled style="background: #f1f1f1;"></option>
+        <option value="<?=self::q_type_special_hint?>" <?=$t == self::q_type_special_hint ? 'selected' : $disabled?>><?=self::printable(self::q_type_special_hint)?></option>
+        <option value="<?=self::q_type_special_separator?>" <?=$t == self::q_type_special_separator ? 'selected' : $disabled?>><?=self::printable(self::q_type_special_separator)?></option>
+        <option value="<?=self::q_type_special_delete?>"><?=self::printable(self::q_type_special_delete)?></option>
+      </select>
+      <hr style="display: none;" />
+      <div class="input_div" style="display: none;">
+        <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text'] ?? ''?>" />
+        <div class="extra_div">
+          <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=$question['extra'] ?? ''?>" />
+          <textarea name="q_extra_multiline_<?=$i?>" rows="1" placeholder="<?=__('Option 1...')?>"><?=$question['extra'] ?? ''?></textarea>
+          <div class="reuse_extra_div">
+            <label style="display: inline-block; margin-right: 20px;"><input type="checkbox" name="q_reuse_extra_<?=$i?>"<?=is_null($question['reuse_extra']) ? '' : ' checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
+            <label style="display: inline-block;"><input type="checkbox" name="q_in_matrix_<?=$i?>"<?=$question['in_matrix'] ? ' checked' : ''?> /> <?=__('Zusammen mit der Frage darüber als Matrix anzeigen', 'LL_survey')?></label>
+          </div>
+          <label style="display: inline-block;"><input type="checkbox" name="q_required_<?=$i?>"<?=$question['required'] ? ' checked' : ''?> /> <?=__('Pflichtfeld', 'LL_survey')?></label>
+        </div>
+      </div>
+    </div>
+    <?php
+  }
+
   static function admin_page_surveys()
   {
     $sub_page = 'list';
     if (isset($_GET['edit'])) $sub_page = 'edit';
-?>
+    ?>
     <div class="wrap">
-<?php
+    <?php
     switch ($sub_page) {
       case 'list':
       {
-?>
+      ?>
       <h1><?=__('Neue Umfrage erstellen', 'LL_survey')?></h1>
 
       <form method="post" action="admin-post.php">
@@ -604,25 +655,26 @@ class LL_survey
       </style>
       <table class="<?=self::_?>_overview">
         <?php
-        $surveys = self::db_get_surveys_with_count();
+        $surveys = self::db_get_surveys_with_question_count();
         $edit_url = self::admin_url() . self::admin_page_survey_edit;
         foreach ($surveys as &$survey) {
-?>
+          $num_answers = $survey['active'] ? sprintf(__('%d Teilnehmer', 'LL_survey'), self::db_count_answers($survey['id'])) : __('(inaktiv)', 'LL_survey');
+          ?>
           <tr>
             <td rowspan="2">#<?=$survey['id']?></td>
             <td colspan="4"><a href="<?=$edit_url . $survey['id']?>"><b><?=$survey['title']?></b></a></td>
           </tr>
           <tr>
             <td class="nostretch"><?=sprintf(__('%d Fragen', 'LL_survey'), $survey['num-questions'])?></td>
-            <td class="nostretch"><span>&middot;</span> <?=sprintf(__('%d Teilnehmer', 'LL_survey'), $survey['num-answers'])?></td>
-            <td class="nostretch"><span>&middot;</span> <?=$survey['start'] ?: '...'?> &mdash; <?=$survey['end'] ?: '...'?></td>
+            <td class="nostretch"><span>&middot;</span> <?=$num_answers?></td>
+            <td class="nostretch"><span>&middot;</span> <?=$survey['start'] ?: '...'?> &ndash; <?=$survey['end'] ?: '...'?></td>
             <td></td>
           </tr>
-<?php
+          <?php
         }
-?>
+        ?>
       </table>
-<?php
+      <?php
       } break;
 
       case 'edit':
@@ -634,7 +686,7 @@ class LL_survey
           wp_redirect(self::admin_url() . self::admin_page_surveys);
           exit;
         }
-?>
+        ?>
       <h1><?=__('Umfragen', 'LL_survey')?> &gt; #<?=$survey['id']?> <?=$survey['title']?></h1>
 
       <form method="post" action="admin-post.php">
@@ -720,61 +772,33 @@ class LL_survey
                 }
               </style>
               <div id="<?=self::_?>_questions_div">
-<?php
-        function print_question_html($i, $question) {
-          $t = $question['type'];
-?>
-                <div id="<?=is_null($question) ? self::_ . '_add_question_template' : ''?>">
-                  <input type="hidden" name="q_order_<?=$i?>" value="<?=$i?>" />
-                  <input type="hidden" name="q_id_<?=$i?>" value="<?=$question['id'] ?? ''?>" />
-                  <span class="dashicons dashicons-sort"></span>
-                  <select name="q_type_<?=$i?>">
-                    <option value="<?=self::q_type_text?>" <?=$t == self::q_type_text ? 'selected' : ''?>><?=__('Text', 'LL_survey')?></option>
-                    <option value="<?=self::q_type_check?>" <?=$t == self::q_type_check ? 'selected' : ''?>><?=__('Check', 'LL_survey')?></option>
-                    <option value="<?=self::q_type_select?>" <?=$t == self::q_type_select ? 'selected' : ''?>><?=__('Auswahl', 'LL_survey')?></option>
-                    <option value="<?=self::q_type_multiselect?>" <?=$t == self::q_type_multiselect ? 'selected' : ''?>><?=__('Mehrfachauswahl', 'LL_survey')?></option>
-                    <option disabled>-</option>
-                    <option value="<?=self::q_type_special_hint?>" <?=$t == self::q_type_special_hint ? 'selected' : ''?>>(<?=__('Hinweistext', 'LL_survey')?>)</option>
-                    <option value="<?=self::q_type_special_separator?>" <?=$t == self::q_type_special_separator ? 'selected' : ''?>>(<?=__('Seitenwechsel', 'LL_survey')?>)</option>
-                    <option value="<?=self::q_type_special_delete?>">(<?=__('Löschen', 'LL_survey')?>)</option>
-                  </select>
-                  <hr style="display: none;" />
-                  <div class="input_div" style="display: none;">
-                    <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text'] ?? ''?>" />
-                    <div class="extra_div">
-                      <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=$question['extra'] ?? ''?>" />
-                      <textarea name="q_extra_multiline_<?=$i?>" rows="1" placeholder="<?=__('Option 1...')?>"><?=$question['extra'] ?? ''?></textarea>
-                      <div class="reuse_extra_div">
-                        <label style="margin-right: 20px;"><input type="checkbox" name="q_reuse_extra_<?=$i?>"<?=is_null($question['reuse_extra']) ? '' : ' checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
-                        <label><input type="checkbox" name="q_in_matrix_<?=$i?>"<?=$question['in_matrix'] ? ' checked' : ''?> /> <?=__('Zusammen mit der Frage darüber als Matrix anzeigen', 'LL_survey')?></label>
-                      </div>
-                      <label><input type="checkbox" name="q_required_<?=$i?>"<?=$question['required'] ? ' checked' : ''?> /> <?=__('Pflichtfeld', 'LL_survey')?></label>
-                    </div>
-                  </div>
-                </div>
-<?php
-        }
+        <?php
         $questions = self::db_get_questions_by_survey($survey_id);
         $i = 0;
         foreach ($questions as $question) {
-          $t = $question['type'];
-          print_question_html($i, $question);
+          self::print_question_html($i, $question, $survey['active']);
           ++$i;
         }
-?>
+        ?>
+              </div>
+        <?php
+        if (!$survey['active']) {
+        ?>
+              <div style="display: none">
+                <?php
+                self::print_question_html('', null, false);
+                ?>
               </div>
               <p>
                 <button id="<?=self::_?>_add_question_btn" class="button" type="button"><?=__('Frage hinzufügen', 'LL_survey')?></button>
               </p>
+        <?php
+        }
+        ?>
               <p class="description">
                 <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
-                <?=sprintf(__('Als Option für Text-Fragen kann ein %s oder einer der vordefinierten Typen %s verwendet werden.', 'LL_survey'), '<code>pattern</code>', '<code>' . implode(', ', self::q_special_text_types) . '</code>')?>
+                <?=sprintf(__('Als Option für Text-Fragen kann ein %s oder einer der vordefinierten Typen %s verwendet werden.', 'LL_survey'), '<code>pattern</code>', '<code>' . self::printable(self::q_special_text_multiline) . ', ' . implode(', ', self::q_special_text_types) . '</code>')?>
               </p>
-              <div style="display: none">
-<?php
-        print_question_html('', null);
-?>
-              </div>
             </td>
           </tr>
           <tr>
@@ -963,11 +987,20 @@ class LL_survey
             t_clone.querySelector('[name="q_extra_multiline_"]').name += i;
             t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
             t_clone.querySelector('[name="q_in_matrix_"]').name += i;
+            t_clone.querySelector('[name="q_required_"]').name += i;
 
             if (i > 0) {
               var last = question_divs.last()[0];
               t_clone.querySelector('[name^="q_type_"]').value = last.querySelector('[name^="q_type_"]').value;
-              t_clone.querySelector('[name^="q_reuse_extra_"]').checked = last.querySelector('[name^="q_reuse_extra_"]').checked;
+              if (last.querySelector('[name^="q_reuse_extra_"]').checked) {
+                t_clone.querySelector('[name^="q_reuse_extra_"]').checked = true;
+                t_clone.querySelector('[name^="q_in_matrix_"]').checked = last.querySelector('[name^="q_in_matrix_"]').checked;
+              }
+              else {
+                t_clone.querySelector('[name^="q_extra_singleline_"]').value = last.querySelector('[name^="q_extra_singleline_"]').value;
+                t_clone.querySelector('[name^="q_extra_multiline_"]').value = last.querySelector('[name^="q_extra_multiline_"]').value;
+              }
+              t_clone.querySelector('[name^="q_required_"]').checked = last.querySelector('[name^="q_required_"]').checked;
             }
 
             jQuery(t_clone.querySelector('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
@@ -992,7 +1025,7 @@ class LL_survey
         <p>Status: <code><?=$survey['active'] ? __('aktiv', 'LL_survey') : __('inaktiv', 'LL_survey')?></code></p>
         <p class="description">
           <?=__('Solange die Umfrage deaktiviert ist, können nur eingeloggte (WP-)Nutzer die Umfrage sehen und testen. Antworten werden nicht gespeichert.', 'LL_survey')?><br />
-          <?=__('Ist die Umfrage aktiv, kann sie nur noch eingeschränkt bearbeitet werden.', 'LL_survey')?>
+          <?=__('In aktiven Umfragen können Fragen nicht mehr neu hinzugefügt und existierende nur noch eingeschränkt bearbeitet werden.', 'LL_survey')?>
         </p>
         <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
         <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
@@ -1000,7 +1033,7 @@ class LL_survey
         <?=wp_nonce_field(self::_ . '_survey_de_activate')?>
         <?php
         if ($survey['active']) {
-          submit_button(__('Umfrage deaktivieren und bisherige Antworten löschen', 'LL_survey'), '');
+          submit_button(__('Umfrage deaktivieren und bisherige Antworten löschen', 'LL_survey'), '', 'submit', true, 'onclick="return confirm(\'' . __('Gelöschte Antworten können nicht wiederhergestellt werden.\nUmfrage jetzt wirklich deaktivieren und bisherige Antworten löschen?', 'LL_survey') . '\')"');
         }
         else {
           submit_button(__('Umfrage aktivieren', 'LL_survey'), '');
@@ -1023,7 +1056,7 @@ class LL_survey
         <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
         <?php wp_nonce_field(self::_ . '_survey_delete'); ?>
         <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
-        <?php submit_button(__('Umfrage löschen', 'LL_survey'), ''); ?>
+        <?php submit_button(__('Umfrage löschen', 'LL_survey'), '', 'submit', true, 'onclick="return confirm(\'' . __('Gelöschte Umfragen können nicht wiederhergestellt werden.\nUmfrage jetzt wirklich endgültig löschen?', 'LL_survey') . '\')"'); ?>
       </form>
 <?php
         }
@@ -1260,6 +1293,33 @@ class LL_survey
   // - reuse_extra
   // - in_matrix
   // - required
+
+  static function print_navigation_buttons($max_num_matrix_options, $back, $next, $submit) {
+    ?>
+    <tr class="<?=self::_?>_next_page">
+      <td colspan="<?=$max_num_matrix_options + 1?>" style="width: 100%;">
+        <?php
+        if ($back) {
+          ?>
+          <input type="button" class="<?=self::_?>_btn_back" value="<?=__('Zurück', 'LL_survey')?>" />
+          <?php
+        }
+        if ($next) {
+          ?>
+          <input type="button" class="<?=self::_?>_btn_next" value="<?=__('Weiter', 'LL_survey')?>" />
+          <?php
+        }
+        if ($submit) {
+          ?>
+          <input type="submit" value="<?=__('Meine Antworten jetzt absenden', 'LL_survey')?>" disabled />
+          <?php
+        }
+        ?>
+      </td>
+    </tr>
+    <?php
+  }
+
   static function shortcode_SURVEY($atts)
   {
     $what = $survey_id = strtolower($atts[0]);
@@ -1290,33 +1350,6 @@ class LL_survey
 
     ob_start();
     if ($survey['active'] || is_user_logged_in()) {
-
-      function print_navigation_buttons($max_num_matrix_options, $back, $next, $submit) {
-        ?>
-        <tr class="<?=self::_?>_next_page">
-          <td colspan="<?=$max_num_matrix_options + 1?>" style="width: 100%;">
-            <?php
-            if ($back) {
-              ?>
-              <input type="button" class="<?=self::_?>_btn_back" value="<?=__('Zurück', 'LL_survey')?>" />
-              <?php
-            }
-            if ($next) {
-              ?>
-              <input type="button" class="<?=self::_?>_btn_next" value="<?=__('Weiter', 'LL_survey')?>" />
-              <?php
-            }
-            if ($submit) {
-              ?>
-              <input type="submit" value="<?=__('Meine Antworten jetzt absenden', 'LL_survey')?>" disabled />
-              <?php
-            }
-            ?>
-          </td>
-        </tr>
-        <?php
-      }
-
       $questions = self::db_get_questions_by_survey($survey_id);
       $questions_by_id = [];
       $max_num_matrix_options = 1;
@@ -1354,7 +1387,7 @@ class LL_survey
               $without_separator = false;
               $back = false;
             }
-            print_navigation_buttons($max_num_matrix_options, $back, true, false);
+            self::print_navigation_buttons($max_num_matrix_options, $back, true, false);
             ?>
           </table>
           <table class="<?=self::_?>" style="display: none;">
@@ -1378,6 +1411,12 @@ class LL_survey
                 if (in_array($extra, self::q_special_text_types)) {
                   ?>
                   <input type="<?=$extra?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required?> />
+                  <?php
+                }
+                else if (preg_match(self::pattern_multiline[0], $extra)) {
+                  $rows = preg_replace(self::pattern_multiline[0], self::pattern_multiline[1], $extra) ?: '3';
+                  ?>
+                  <textarea <?=$tag_name_and_id?> rows="<?=$rows?>"></textarea>
                   <?php
                 }
                 else {
@@ -1497,12 +1536,12 @@ class LL_survey
             break;
         }
       }
-      print_navigation_buttons($max_num_matrix_options, !$without_separator, true, false);
+      self::print_navigation_buttons($max_num_matrix_options, !$without_separator, true, false);
       ?>
       </table>
       <table class="<?=self::_?>" style="display: none;">
         <?php
-        print_navigation_buttons($max_num_matrix_options, true, false, true);
+        self::print_navigation_buttons($max_num_matrix_options, true, false, true);
         ?>
       </table>
       </form>
@@ -1527,6 +1566,8 @@ class LL_survey
                 var inputs = null;
                 switch (tr.getAttribute('data-question-type')) {
                   case '<?=self::q_type_text?>':
+                    input = tr.querySelector('input,textarea');
+                    break;
                   case '<?=self::q_type_check?>':
                     input = tr.querySelector('input');
                     break;
@@ -1583,6 +1624,8 @@ class LL_survey
     return ob_get_clean();
   }
 
+
+
   // surveys
   // - id
   // - name
@@ -1604,6 +1647,7 @@ class LL_survey
   // - question
   // - text
   // - time
+
   static function finish_survey($request)
   {
     if (isset($request['survey_id'])) {
@@ -1617,6 +1661,7 @@ class LL_survey
           $q_extra = explode("\n", $q['extra'] ?: $q['indirect_extra']) ?: [];
           switch ($q['type']) {
             case self::q_type_special_separator:
+            case self::q_type_special_hint:
               break;
             case self::q_type_check:
               $answers[$q_id] = isset($request[$q_id]);
