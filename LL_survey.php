@@ -1378,7 +1378,7 @@ class LL_survey
         $extra = ($question['reuse_extra'] ? $questions_by_id[$question['reuse_extra']] : $question)['extra'];
         $required = $question['required'] ? 'required' : '';
         $q_class = 'class="' . self::_ . '_question_div ' . self::_ . '_question_' . $question['type'] . ' ' . (($question['in_matrix'] || $question['is_first_matrix_row']) ? self::_ . '_question_matrix' : '') . '"';
-        $q_type = 'data-question="1" data-question-type="' . $question['type'] . '"';
+        $q_type = 'data-question="' . $question['id'] . '" data-question-type="' . $question['type'] . '"';
         switch ($question['type']) {
           case self::q_type_special_separator:
             $back = true;
