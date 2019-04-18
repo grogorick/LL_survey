@@ -68,7 +68,7 @@ class LL_survey
   const q_special_text_multiline = 'multiline';
   const q_special_text_types = ['number', 'date', 'time', 'datetime-local', 'email', 'url'];
 
-  const pattern_multiline = ['/^' . self::q_special_text_multiline . '(\w+(\d+))?$/', '$2'];
+  const pattern_multiline = ['/^' . self::q_special_text_multiline . '(\s+(\d+))?$/', '$2'];
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
@@ -1362,9 +1362,6 @@ class LL_survey
         $questions_by_id[$question['id']] = $question;
       }
       ?> 
-      <style>
-        .<?=self::_?> th { width: 50%; }
-      </style>
       <form method="post" action="<?=self::json_url()?>finish">
       <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
       <div class="<?=self::_?>">
@@ -1491,7 +1488,7 @@ class LL_survey
               foreach ($extra as $idx => &$option) {
                 $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                 ?> 
-                <div><input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label></div>
+                <div><input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"><?=$option?></label></div>
                 <?php
               }
               ?> 
@@ -1517,7 +1514,7 @@ class LL_survey
                 $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                 $tag_name_and_id_with_idx = 'name="' . $tag_id_value_with_idx . '" id="' . $tag_id_value_with_idx . '"';
                 ?> 
-                <div><input type="checkbox" <?=$tag_name_and_id_with_idx?> <?=$question['required'] ? 'data-multi-required="true"' : ''?> /><label for="<?=$tag_id_value_with_idx?>"> <?=$option?></label></div>
+                <div><input type="checkbox" <?=$tag_name_and_id_with_idx?> <?=$question['required'] ? 'data-multi-required="true"' : ''?> /><label for="<?=$tag_id_value_with_idx?>"><?=$option?></label></div>
                 <?php
               }
               ?> 
