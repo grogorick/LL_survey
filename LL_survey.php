@@ -516,11 +516,12 @@ class LL_survey
   static function admin_menu()
   {
     $required_capability = 'administrator';
-    add_menu_page(self::_, self::_, $required_capability, self::admin_page_settings, self::_('admin_page_settings'), plugins_url('/icon.png', __FILE__));
-    add_action('admin_init', self::_('admin_page_settings_general_action'));
+    add_menu_page(self::_, self::_, $required_capability, self::admin_page_surveys, self::_('admin_page_surveys'), plugins_url('/icon.png', __FILE__));
 
-    add_submenu_page(self::admin_page_settings,           self::_, 'Einstellungen', $required_capability, self::admin_page_settings,  self::_('admin_page_settings'));
-    $suffix = add_submenu_page(self::admin_page_settings, self::_, 'Umfragen',      $required_capability, self::admin_page_surveys,   self::_('admin_page_surveys'));
+    add_submenu_page(self::admin_page_surveys, self::_, 'Umfragen',      $required_capability, self::admin_page_surveys,   self::_('admin_page_surveys'));
+
+    add_submenu_page(self::admin_page_surveys, self::_, 'Einstellungen', $required_capability, self::admin_page_settings,  self::_('admin_page_settings'));
+    add_action('admin_init', self::_('admin_page_settings_general_action'));
   }
 
 
@@ -532,7 +533,7 @@ class LL_survey
       <h1><?=__('Allgemeine Einstellungen', 'LL_survey')?></h1>
 
       <form method="post" action="options.php">
-        <?php settings_fields(self::_ . '_general'); ?> 
+        <?php settings_fields(self::_ . '_general'); ?>
         <table class="form-table">
           <tr>
             <th scope="row"><?=__('Test', 'LL_survey')?></th>
@@ -636,7 +637,8 @@ class LL_survey
           color: #aaa;
           width: 80px;
         }
-        table.LL_survey_overview tr:nth-child(4n-3) td, table.LL_survey_overview tr:nth-child(4n-2) td {
+        table.LL_survey_overview tr:nth-child(4n-3) td,
+        table.LL_survey_overview tr:nth-child(4n-2) td {
           background: #fff5;
         }
         table.LL_survey_overview tr:nth-child(2n-1) td:nth-child(2) {
@@ -729,7 +731,8 @@ class LL_survey
                   margin-top: -50px;
                   margin-bottom: -50px;
                 }
-                #<?=self::_?>_questions_div:before, #<?=self::_?>_questions_div:after {
+                #<?=self::_?>_questions_div:before,
+                #<?=self::_?>_questions_div:after {
                   height: 50px;
                   content: '';
                   display: block;
@@ -749,11 +752,14 @@ class LL_survey
                   flex: .9;
                   height: 7px;
                 }
-                #<?=self::_?>_questions_div > div > div > *, #<?=self::_?>_questions_div .extra_div > input[type="text"], #<?=self::_?>_questions_div .extra_div > textarea {
+                #<?=self::_?>_questions_div > div > div > *,
+                #<?=self::_?>_questions_div .extra_div > input[type="text"],
+                #<?=self::_?>_questions_div .extra_div > textarea {
                   width: 100%;
                 }
                 #<?=self::_?>_questions_div .extra_div > textarea {
-                  background: linear-gradient(white 1px, transparent 1px) 0 0 / auto 100% content-box, linear-gradient(#CCC 1px, transparent 1px) 0 0 / auto 19px content-box, white;
+                  line-height: 1.5;
+                  background: linear-gradient(white 1px, transparent 1px) 0 0 / auto 100% content-box, linear-gradient(#CCC 1px, transparent 1px) 0 0 / auto calc(1.5 * 1em) content-box, white;
                   resize: none;
                 }
                 #<?=self::_?>_questions_div .dashicons {
@@ -1448,9 +1454,9 @@ class LL_survey
                 <?php
                 foreach ($extra as &$option) {
                   ?> 
-                  <td class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
+                  <th class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
                     <span><?=$option?></span>
-                  </td>
+                  </th>
                 <?php
                 }
                 ?> 
@@ -1541,10 +1547,11 @@ class LL_survey
           jQuery('.<?=self::_?>_btn_back').click(function() {
             var current_table = this.closest('.<?=self::_?>');
             var next_table = current_table.previousElementSibling;
-            jQuery(current_table).fadeOut(200, function() {
+            jQuery(current_table).fadeOut(200, function () {
               submit_button.disabled = true;
               jQuery(next_table).fadeIn(200);
-            })
+              jQuery('html, body').animate({ scrollTop: jQuery(next_table.querySelector('.<?=self::_?>_btn_next')).offset().top }, 'slow');
+            });
           });
           jQuery('.<?=self::_?>_btn_next').click(function() {
             var current_table = this.closest('.<?=self::_?>');
@@ -1601,6 +1608,12 @@ class LL_survey
               jQuery(current_table).fadeOut(200, function () {
                 submit_button.disabled = !next_table.querySelector('input[type="submit"]');
                 jQuery(next_table).fadeIn(200);
+                jQuery('html, body').animate({ scrollTop: jQuery('h1').offset().top }, 'slow');
+
+                window.addEventListener('beforeunload', function (e) {
+                  e.preventDefault();
+                  e.returnValue = '';
+                });
               });
             }
           });
