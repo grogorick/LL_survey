@@ -1448,39 +1448,49 @@ class LL_survey
               if ($question['is_first_matrix_row']) {
               ?> 
             <div <?=$q_class?>>
-              <table>
-                <tr>
-                  <th></th>
+              <div class="<?=self::_?>_input_matrix_header_row">
+                <div></div>
                 <?php
                 foreach ($extra as &$option) {
                   ?> 
-                  <th class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
-                    <span><?=$option?></span>
-                  </th>
+                <div class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
+                  <span><?=$option?></span>
+                </div>
                 <?php
                 }
-                ?> 
-                </tr>
+              ?> 
+              </div>
               <?php
               }
               ?> 
-                <tr <?=$q_type?>>
-                  <td class="<?=self::_?>_question"><?=$question['text']?></td>
-                  <?php
-                  for ($idx = 0; $idx < count($extra); ++$idx) {
-                    $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
-                    ?> 
-                  <td class="<?=self::_?>_input <?=self::_?>_input_matrix" <?=$matrix_input_row_style?>>
-                    <input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"></label>
-                  </td>
-                    <?php
-                  }
+              <div class="<?=self::_?>_input_matrix_row" <?=$q_type?>>
+                <div class="<?=self::_?>_question"><?=$question['text']?></div>
+                <?php
+                for ($idx = 0; $idx < count($extra); ++$idx) {
+                  $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?> 
-                </tr>
+                <div class="<?=self::_?>_input <?=self::_?>_input_matrix" <?=$matrix_input_row_style?>>
+                  <input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"></label>
+                </div>
+                <?php
+              }
+              ?> 
+              </div>
               <?php
               if ($question['is_last_matrix_row']) {
                 ?> 
-              </table>
+              <div class="<?=self::_?>_input_matrix_header_row">
+                <div></div>
+                <?php
+                foreach ($extra as &$option) {
+                  ?> 
+                <div class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
+                  <span><?=$option?></span>
+                </div>
+                <?php
+                }
+              ?> 
+              </div>
             </div>
                 <?php
               }
