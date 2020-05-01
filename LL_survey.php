@@ -1465,7 +1465,7 @@ class LL_survey
               }
               ?> 
                 <tr <?=$q_type?>>
-                  <th class="<?=self::_?>_question"><?=$question['text']?></th>
+                  <td class="<?=self::_?>_question"><?=$question['text']?></td>
                   <?php
                   for ($idx = 0; $idx < count($extra); ++$idx) {
                     $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
