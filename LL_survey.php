@@ -617,24 +617,6 @@ class LL_survey
   static function admin_display_survey_list()
   {
     ?>
-    <h1><?=__('Neue Umfrage erstellen', 'LL_survey')?></h1>
-
-    <form method="post" action="admin-post.php">
-      <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
-      <?php wp_nonce_field(self::_ . '_survey_add'); ?>
-      <table class="form-table">
-        <tr>
-          <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
-          <td>
-            <input type="text" name="survey_title" placeholder="<?=__('Meine Umfrage', 'LL_survey')?>" class="regular-text" /> &nbsp;
-            <?php submit_button(__('Neue Umfrage anlegen', 'LL_survey'), 'primary', '', false); ?>
-          </td>
-        </tr>
-      </table>
-    </form>
-
-    <hr />
-
     <h1><?=__('Umfragen', 'LL_survey')?></h1>
 
     <style>
@@ -649,15 +631,13 @@ class LL_survey
       table.<?=self::_?>_overview td {
         padding: 0;
       }
-      table.<?=self::_?>_overview td[rowspan="3"] {
+      table.<?=self::_?>_overview tr:first-child td:first-child {
         padding: 10px;
         font-size: 200%;
         color: #aaa;
         width: 80px;
       }
-      table.LL_survey_overview tr:nth-child(6n+1) td,
-      table.LL_survey_overview tr:nth-child(6n+2) td,
-      table.LL_survey_overview tr:nth-child(6n+3) td {
+      table.LL_survey_overview tbody:nth-child(odd) td {
         background: #f9f9f9;
       }
       table.LL_survey_overview tr:nth-child(3n+1) td:nth-child(2) {
@@ -673,6 +653,9 @@ class LL_survey
       table.<?=self::_?>_overview td > span {
         padding: 0 20px;
       }
+      table.<?=self::_?>_overview .has-row-actions:hover .row-actions {
+        position: static;
+      }
     </style>
     <table class="<?=self::_?>_overview widefat">
       <?php
@@ -682,34 +665,54 @@ class LL_survey
       foreach ($surveys as &$survey) {
         $num_answers = $survey['active'] ? sprintf(__('%d Teilnehmer', 'LL_survey'), self::db_count_answers($survey['id'])) : __('(inaktiv)', 'LL_survey');
         ?>
-        <tr>
-          <td rowspan="3">#<?=$survey['id']?></td>
-          <td colspan="4"><b><?=$survey['title']?></b></td>
-        </tr>
-        <tr>
-          <td class="nostretch"><?=sprintf(__('%d Fragen', 'LL_survey'), $survey['num-questions'])?></td>
-          <td class="nostretch"><span>&middot;</span> <?=$num_answers?></td>
-          <td class="nostretch"><span>&middot;</span> <?=$survey['start'] ?: '...'?> &ndash; <?=$survey['end'] ?: '...'?></td>
-          <td></td>
-        </tr>
-        <tr>
-          <td colspan="4">
-            <div class="row-actions">
-              <a href="<?=$edit_url . $survey['id']?>"><?=__('Umfrage bearbeiten', 'LL_survey')?></a>
-              <?php
-              if ($survey['active']) {
-                ?>
-                | <a href="<?=$answers_url . $survey['id']?>"><?=__('Antworten durchsuchen', 'LL_survey')?></a>
+        <tbody class="has-row-actions">
+          <tr>
+            <td rowspan="3">#<?=$survey['id']?></td>
+            <td colspan="4"><b><?=$survey['title']?></b></td>
+          </tr>
+          <tr>
+            <td class="nostretch"><?=sprintf(__('%d Fragen', 'LL_survey'), $survey['num-questions'])?></td>
+            <td class="nostretch"><span>&middot;</span> <?=$num_answers?></td>
+            <td class="nostretch"><span>&middot;</span> <?=$survey['start'] ?: '...'?> &ndash; <?=$survey['end'] ?: '...'?></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td colspan="4">
+              <div class="row-actions">
+                <a href="<?=$edit_url . $survey['id']?>"><?=__('Umfrage bearbeiten', 'LL_survey')?></a>
                 <?php
-              }
-              ?>
-            </div>
-          </td>
-        </tr>
+                if ($survey['active']) {
+                  ?>
+                  | <a href="<?=$answers_url . $survey['id']?>"><?=__('Antworten durchsuchen', 'LL_survey')?></a>
+                  <?php
+                }
+                ?>
+              </div>
+            </td>
+          </tr>
+        </tbody>
         <?php
       }
       ?>
     </table>
+
+    <hr style="margin-top: 20pt" />
+
+    <h1><?=__('Neue Umfrage erstellen', 'LL_survey')?></h1>
+
+    <form method="post" action="admin-post.php">
+      <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
+      <?php wp_nonce_field(self::_ . '_survey_add'); ?>
+      <table class="form-table">
+        <tr>
+          <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
+          <td>
+            <input type="text" name="survey_title" placeholder="<?=__('Meine Umfrage', 'LL_survey')?>" class="regular-text" /> &nbsp;
+            <?php submit_button(__('Neue Umfrage anlegen', 'LL_survey'), 'primary', '', false); ?>
+          </td>
+        </tr>
+      </table>
+    </form>
     <?php
   }
 
