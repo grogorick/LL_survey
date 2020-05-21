@@ -1123,42 +1123,65 @@ class LL_survey
       echo '<p>' . __('Keine Antworten bisher.', 'LL_survey') . '</p>';
       return;
     }
-    
+
     $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
-    $q_ids = ['time'];
+    $questions = array_merge([['position' => -1, 'id' => 'time', 'text' => 'Zeit']], $questions);
+    usort($questions, function(&$a, &$b) { return $a['position'] - $b['position']; });
     ?>
     <style>
-      table.<?=self::_?>_answers {
+      .<?=self::_?>_answers {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: scroll;
+        margin-top: 10pt;
+      }
+      .<?=self::_?>_answers table {
+        width: auto;
+        min-width: 100%;
+        border-left: none;
+      }
+      .<?=self::_?>_answers tr:first-child td {
+        white-space: nowrap;
+        word-wrap: normal;
+        word-break: normal;
+      }
+      .<?=self::_?>_answers th {
+        min-width: 100pt;
+        max-width: 200pt;
+        position: sticky;
+        left: 0;
+        border-right: 1px solid #ccd0d4;
+        border-left: 1px solid #ccd0d4;
+        background: white;
+      }
+      .<?=self::_?>_answers tr:nth-child(odd) th {
+        background: #f9f9f9;
       }
     </style>
-    <table class="<?=self::_?>_answers widefat fixed striped">
-      <tr>
-        <th>Zeit</th>
-      <?php
-      foreach ($questions as &$question) {
-        $q_ids[] = 'q_' . $question['id'];
-        ?>
-        <th><?=$question['text']?></th>
+    <div class="<?=self::_?>_answers">
+      <table class="widefat fixed striped">
         <?php
-      }
-      ?>
-      </tr>
-      <?php
-      foreach ($answers as &$answer) {
-        ?>
-        <tr>
-          <?php
-          foreach ($q_ids as $q) {
-            ?>
-            <td><?=$answer[$q]?></td>
-            <?php
+        foreach ($questions as &$question) {
+          $q_id = $question['id'];
+          if ($q_id !== 'time') {
+            $q_id = 'q_' . $q_id;
           }
           ?>
-        </tr>
-        <?php
-      }
-      ?>
-    </table>
+          <tr>
+            <th><?=$question['text']?></th>
+            <?php
+            foreach ($answers as &$answer) {
+              ?>
+              <td><?=$answer[$q_id]?></td>
+              <?php
+            }
+            ?>
+          </tr>
+          <?php
+        }
+        ?>
+      </table>
+    </div>
     <?php
 
     echo '<pre>';
