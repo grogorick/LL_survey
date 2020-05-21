@@ -32,6 +32,7 @@ class LL_survey
   const admin_page_settings                 = self::_ . '_settings';
   const admin_page_surveys                  = self::_ . '_surveys';
   const admin_page_survey_edit              = self::_ . '_surveys&edit=';
+  const admin_page_survey_answers           = self::_ . '_surveys&answers=';
 
   const shortcode_SURVEY                    = ['code'    => 'LL_SURVEY',
                                                'html'    => '[LL_SURVEY [title | start | end] #&lt;id&gt;]'];
@@ -382,15 +383,16 @@ class LL_survey
 
   // surveys
   // - id
-  // - name
+  // - title
   // - active
   // - start
   // - end
+  // - redirect_page
   static function db_add_survey($title) { return self::_db_insert(self::db_(self::table_surveys), ['title' => $title]); }
   static function db_update_survey($survey_id, $data) { return self::_db_update(self::db_(self::table_surveys), $data, ['id' => ['=', $survey_id]]); }
   static function db_get_surveys($what = [['*']]) { return self::_db_select(self::db_(self::table_surveys), $what); }
   static function db_get_surveys_with_question_count() { return self::_db_select([[self::db_(self::table_surveys), 'as' => 's'], [self::db_(self::table_questions), 'as' => 'q'], 'left join' => '`s`.`id` = `q`.`survey`'], [['.' => 's', 'id', 'as' => 'id'], ['.' => 's', 'title', 'as' => 'title'], ['.' => 's', 'active', 'as' => 'active'], ['.' => 's', 'start', 'as' => 'start'], ['.' => 's', 'end', 'as' => 'end'], [['COUNT(0)'], 'as' => 'num-questions']], [], [['.' => 's', 'id']]); }
-  static function db_get_survey_by_id($survey_id, $what = ['id', 'title', 'active', 'start', 'end', 'redirect_page', ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']]) { return self::_db_select_row(self::db_(self::table_surveys), $what, ['id' => ['=', $survey_id]]); }
+  static function db_get_survey_by_id($survey_id, $what = [['*'], ['DATE_FORMAT(`start`, "%Y-%m-%dT%H:%i") AS `start_T`'], ['DATE_FORMAT(`end`, "%Y-%m-%dT%H:%i") AS `end_T`']]) { return self::_db_select_row(self::db_(self::table_surveys), $what, ['id' => ['=', $survey_id]]); }
   static function db_delete_survey($survey_id) { return self::_db_delete(self::db_(self::table_surveys), ['id' => ['=', $survey_id]]); }
 
   // questions
@@ -409,18 +411,20 @@ class LL_survey
   static function db_get_questions_by_survey($survey_id, $what = [['*']]) { return self::_db_select(self::db_(self::table_questions), $what, ['survey' => ['=', $survey_id]], [], ['position' => 'ASC']); }
   static function db_get_questions_by_survey_with_reuse_extra($survey_id) {
 	  return self::_db_select(
-//    return self::_db_build_select(
 	    [[self::db_(self::table_questions), 'as' => 'q'], [self::db_(self::table_questions), 'as' => 'qq'], 'left join' => '`q`.`reuse_extra` = `qq`.`id`'],
       [['.' => 'q', ['*']], ['.' => 'qq', 'extra', 'as' => 'indirect_extra']],
       '`q`.`survey` = ' . self::escape_value($survey_id)); }
 
   // answers
   // - id
-  // - question
-  // - text
   // - time
+  // - q_{ID 1}
+  // - q_{ID 2}
+  // - ...
+  // - q_{ID n}
   static function db_add_answer($survey_id, $answer) { return self::_db_insert(self::db_(self::table_answers . $survey_id), $answer); }
   static function db_count_answers($survey_id) { return self::_db_select_row(self::db_(self::table_answers . $survey_id), [[['COUNT(0)'], 'as' => 'count']])['count']; }
+  static function db_get_answers_by_survey($survey_id) { return self::_db_select(self::db_(self::table_answers . $survey_id)); }
 
 
 
@@ -594,482 +598,573 @@ class LL_survey
 
   static function admin_page_surveys()
   {
-    $sub_page = 'list';
     if (isset($_GET['edit'])) $sub_page = 'edit';
+    else if (isset($_GET['answers'])) $sub_page = 'answers';
+    else $sub_page = 'list';
     ?> 
     <div class="wrap">
     <?php
     switch ($sub_page) {
-      case 'list':
-      {
-      ?> 
-      <h1><?=__('Neue Umfrage erstellen', 'LL_survey')?></h1>
+      case 'list': self::admin_display_survey_list(); break;
+      case 'edit': self::admin_display_edit_survey(); break;
+      case 'answers': self::admin_display_survey_answers(); break;
+    }
+    ?>
+    </div>
+    <?php
+  }
 
-      <form method="post" action="admin-post.php">
-        <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
-        <?php wp_nonce_field(self::_ . '_survey_add'); ?> 
-        <table class="form-table">
-          <tr>
-            <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
-            <td>
-              <input type="text" name="survey_title" placeholder="<?=__('Meine Umfrage', 'LL_survey')?>" class="regular-text" /> &nbsp;
-              <?php submit_button(__('Neue Umfrage anlegen', 'LL_survey'), 'primary', '', false); ?>
-            </td>
-          </tr>
-        </table>
-      </form>
+  static function admin_display_survey_list()
+  {
+    ?>
+    <h1><?=__('Neue Umfrage erstellen', 'LL_survey')?></h1>
 
-      <hr />
-
-      <h1><?=__('Umfragen', 'LL_survey')?></h1>
-
-      <style>
-        table.<?=self::_?>_overview {
-          margin-top: 10px;
-          width: 100%;
-          border-collapse: collapse;
-        }
-        table.<?=self::_?>_overview a {
-          text-decoration: none;
-        }
-        table.<?=self::_?>_overview td[rowspan="2"] {
-          font-size: 200%;
-          color: #aaa;
-          width: 80px;
-        }
-        table.LL_survey_overview tr:nth-child(4n-3) td,
-        table.LL_survey_overview tr:nth-child(4n-2) td {
-          background: #fff5;
-        }
-        table.LL_survey_overview tr:nth-child(2n-1) td:nth-child(2) {
-          padding-top: 10px;
-        }
-        table.LL_survey_overview tr:nth-child(2n) td {
-          padding-bottom: 10px;
-        }
-        table.<?=self::_?>_overview td.nostretch {
-          width: 1px;
-          white-space: nowrap;
-        }
-        table.<?=self::_?>_overview td > span {
-          padding: 0 20px;
-        }
-      </style>
-      <table class="<?=self::_?>_overview">
-        <?php
-        $surveys = self::db_get_surveys_with_question_count();
-        $edit_url = self::admin_url() . self::admin_page_survey_edit;
-        foreach ($surveys as &$survey) {
-          $num_answers = $survey['active'] ? sprintf(__('%d Teilnehmer', 'LL_survey'), self::db_count_answers($survey['id'])) : __('(inaktiv)', 'LL_survey');
-          ?> 
-          <tr>
-            <td rowspan="2">#<?=$survey['id']?></td>
-            <td colspan="4"><a href="<?=$edit_url . $survey['id']?>"><b><?=$survey['title']?></b></a></td>
-          </tr>
-          <tr>
-            <td class="nostretch"><?=sprintf(__('%d Fragen', 'LL_survey'), $survey['num-questions'])?></td>
-            <td class="nostretch"><span>&middot;</span> <?=$num_answers?></td>
-            <td class="nostretch"><span>&middot;</span> <?=$survey['start'] ?: '...'?> &ndash; <?=$survey['end'] ?: '...'?></td>
-            <td></td>
-          </tr>
-          <?php
-        }
-        ?> 
+    <form method="post" action="admin-post.php">
+      <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
+      <?php wp_nonce_field(self::_ . '_survey_add'); ?>
+      <table class="form-table">
+        <tr>
+          <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
+          <td>
+            <input type="text" name="survey_title" placeholder="<?=__('Meine Umfrage', 'LL_survey')?>" class="regular-text" /> &nbsp;
+            <?php submit_button(__('Neue Umfrage anlegen', 'LL_survey'), 'primary', '', false); ?>
+          </td>
+        </tr>
       </table>
+    </form>
+
+    <hr />
+
+    <h1><?=__('Umfragen', 'LL_survey')?></h1>
+
+    <style>
+      table.<?=self::_?>_overview {
+        margin-top: 10px;
+        width: 100%;
+        border-collapse: collapse;
+      }
+      table.<?=self::_?>_overview a {
+        text-decoration: none;
+      }
+      table.<?=self::_?>_overview td {
+        padding: 0;
+      }
+      table.<?=self::_?>_overview td[rowspan="3"] {
+        padding: 10px;
+        font-size: 200%;
+        color: #aaa;
+        width: 80px;
+      }
+      table.LL_survey_overview tr:nth-child(6n+1) td,
+      table.LL_survey_overview tr:nth-child(6n+2) td,
+      table.LL_survey_overview tr:nth-child(6n+3) td {
+        background: #f9f9f9;
+      }
+      table.LL_survey_overview tr:nth-child(3n+1) td:nth-child(2) {
+        padding-top: 10px;
+      }
+      table.LL_survey_overview tr:nth-child(3n) td {
+        padding-bottom: 10px;
+      }
+      table.<?=self::_?>_overview td.nostretch {
+        width: 1px;
+        white-space: nowrap;
+      }
+      table.<?=self::_?>_overview td > span {
+        padding: 0 20px;
+      }
+    </style>
+    <table class="<?=self::_?>_overview widefat">
       <?php
-      } break;
-
-      case 'edit':
-      {
-        $survey_id = $_GET['edit'];
-        $survey = self::db_get_survey_by_id($survey_id);
-        if (empty($survey)) {
-          self::message(sprintf(__('Umfrage <b>%d</b> existiert nicht.', 'LL_survey'), $survey_id));
-          wp_redirect(self::admin_url() . self::admin_page_surveys);
-          exit;
-        }
-        ?> 
-      <h1><?=__('Umfragen', 'LL_survey')?> &gt; #<?=$survey['id']?> <?=$survey['title']?></h1>
-
-      <form method="post" action="admin-post.php">
-        <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
-        <?php wp_nonce_field(self::_ . '_survey_edit'); ?> 
-        <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
-        <table class="form-table">
-          <tr>
-            <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
-            <td>
-              <input type="text" name="title" value="<?=$survey['title']?>" style="width: 100%;" />
-            </td>
-          </tr>
-          <tr>
-            <th scope="row"><?=__('Zeitraum', 'LL_survey')?></th>
-            <td>
-              <input type="datetime-local" name="start" value="<?=$survey['start_T']?>" title="<?=__('Startzeitpunkt', 'LL_survey')?>" />
-              &nbsp;&mdash;&nbsp;
-              <input type="datetime-local" name="end" value="<?=$survey['end_T']?>" title="<?=__('Endzeitpunkt', 'LL_survey')?>" />
-              <p class="description">
-                <?=__('Kein Startzeitpunkt: ab sofort', 'LL_survey')?><br />
-                <?=__('Kein Endzeitpunkt: unbegrenze Dauer', 'LL_survey')?> 
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row"><?=__('Weiterleitung', 'LL_survey')?></th>
-            <td>
-              <input type="text" name="redirect_page" id="<?=self::_?>_redirect_page" class="regular-text" value="<?=$survey['redirect_page']?>" /> &nbsp; <span id="<?=self::_?>_redirect_page_response"></span>
-              <p class="description">
-                <?=__('Die Blog-Seite, die nach der Umfrage angezeigt werden soll.', 'LL_survey')?> 
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row"><?=__('Fragen', 'LL_survey')?></th>
-            <td>
-              <style>
-                #<?=self::_?>_questions_div {
-                  margin-top: -50px;
-                  margin-bottom: -50px;
-                }
-                #<?=self::_?>_questions_div:before,
-                #<?=self::_?>_questions_div:after {
-                  height: 50px;
-                  content: '';
-                  display: block;
-                }
-                #<?=self::_?>_questions_div > div {
-                  display: flex;
-                  flex-direction: row;
-                  margin-bottom: 20px;
-                }
-                #<?=self::_?>_questions_div > div > .input_div {
-                  flex: 1;
-                  display: inline-block;
-                }
-                #<?=self::_?>_questions_div > div > hr {
-                  border: 0;
-                  border-bottom: 1px dashed gray;
-                  flex: .9;
-                  height: 7px;
-                }
-                #<?=self::_?>_questions_div > div > div > *,
-                #<?=self::_?>_questions_div .extra_div > input[type="text"],
-                #<?=self::_?>_questions_div .extra_div > textarea {
-                  width: 100%;
-                }
-                #<?=self::_?>_questions_div .extra_div > textarea {
-                  line-height: 1.5;
-                  background: linear-gradient(white 1px, transparent 1px) 0 0 / auto 100% content-box, linear-gradient(#CCC 1px, transparent 1px) 0 0 / auto calc(1.5 * 1em) content-box, white;
-                  resize: none;
-                }
-                #<?=self::_?>_questions_div .dashicons {
-                  color: #ccc;
-                  text-align: left;
-                  padding-top: 2px;
-                  font-size: 26px;
-                  width: 36px;
-                  height: auto;
-                }
-                #<?=self::_?>_questions_div input[type="text"] {
-                  height: 28px;
-                }
-                #<?=self::_?>_add_question_btn {
-                  margin: 0 0 20px 36px;
-                }
-              </style>
-              <div id="<?=self::_?>_questions_div">
+      $surveys = self::db_get_surveys_with_question_count();
+      $edit_url = self::admin_url() . self::admin_page_survey_edit;
+      $answers_url = self::admin_url() . self::admin_page_survey_answers;
+      foreach ($surveys as &$survey) {
+        $num_answers = $survey['active'] ? sprintf(__('%d Teilnehmer', 'LL_survey'), self::db_count_answers($survey['id'])) : __('(inaktiv)', 'LL_survey');
+        ?>
+        <tr>
+          <td rowspan="3">#<?=$survey['id']?></td>
+          <td colspan="4"><b><?=$survey['title']?></b></td>
+        </tr>
+        <tr>
+          <td class="nostretch"><?=sprintf(__('%d Fragen', 'LL_survey'), $survey['num-questions'])?></td>
+          <td class="nostretch"><span>&middot;</span> <?=$num_answers?></td>
+          <td class="nostretch"><span>&middot;</span> <?=$survey['start'] ?: '...'?> &ndash; <?=$survey['end'] ?: '...'?></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td colspan="4">
+            <div class="row-actions">
+              <a href="<?=$edit_url . $survey['id']?>"><?=__('Umfrage bearbeiten', 'LL_survey')?></a>
+              <?php
+              if ($survey['active']) {
+                ?>
+                | <a href="<?=$answers_url . $survey['id']?>"><?=__('Antworten durchsuchen', 'LL_survey')?></a>
+                <?php
+              }
+              ?>
+            </div>
+          </td>
+        </tr>
         <?php
-        $questions = self::db_get_questions_by_survey($survey_id);
-        $i = 0;
-        foreach ($questions as $question) {
-          self::print_question_html($i, $question, $survey['active']);
-          ++$i;
-        }
-        ?> 
-              </div>
-        <?php
-        if (!$survey['active']) {
-        ?> 
+      }
+      ?>
+    </table>
+    <?php
+  }
+
+  static function admin_display_edit_survey()
+  {
+    $survey_id = $_GET['edit'];
+    $survey = self::db_get_survey_by_id($survey_id);
+    if (empty($survey)) {
+      self::message(sprintf(__('Umfrage <b>%d</b> existiert nicht.', 'LL_survey'), $survey_id));
+      wp_redirect(self::admin_url() . self::admin_page_surveys);
+      exit;
+    }
+    ?>
+    <h1><?=__('Umfragen', 'LL_survey')?> &gt; #<?=$survey['id']?> <?=$survey['title']?></h1>
+
+    <form method="post" action="admin-post.php">
+      <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
+      <?php wp_nonce_field(self::_ . '_survey_edit'); ?>
+      <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
+      <table class="form-table">
+        <tr>
+          <th scope="row"><?=__('Umfragetitel', 'LL_survey')?></th>
+          <td>
+            <input type="text" name="title" value="<?=$survey['title']?>" style="width: 100%;" />
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><?=__('Zeitraum', 'LL_survey')?></th>
+          <td>
+            <input type="datetime-local" name="start" value="<?=$survey['start_T']?>" title="<?=__('Startzeitpunkt', 'LL_survey')?>" />
+            &nbsp;&mdash;&nbsp;
+            <input type="datetime-local" name="end" value="<?=$survey['end_T']?>" title="<?=__('Endzeitpunkt', 'LL_survey')?>" />
+            <p class="description">
+              <?=__('Kein Startzeitpunkt: ab sofort', 'LL_survey')?><br />
+              <?=__('Kein Endzeitpunkt: unbegrenze Dauer', 'LL_survey')?>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><?=__('Weiterleitung', 'LL_survey')?></th>
+          <td>
+            <input type="text" name="redirect_page" id="<?=self::_?>_redirect_page" class="regular-text" value="<?=$survey['redirect_page']?>" /> &nbsp; <span id="<?=self::_?>_redirect_page_response"></span>
+            <p class="description">
+              <?=__('Die Blog-Seite, die nach der Umfrage angezeigt werden soll.', 'LL_survey')?>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><?=__('Fragen', 'LL_survey')?></th>
+          <td>
+            <style>
+              #<?=self::_?>_questions_div {
+                margin-top: -50px;
+                margin-bottom: -50px;
+              }
+              #<?=self::_?>_questions_div:before,
+              #<?=self::_?>_questions_div:after {
+                height: 50px;
+                content: '';
+                display: block;
+              }
+              #<?=self::_?>_questions_div > div {
+                display: flex;
+                flex-direction: row;
+                margin-bottom: 20px;
+              }
+              #<?=self::_?>_questions_div > div > .input_div {
+                flex: 1;
+                display: inline-block;
+              }
+              #<?=self::_?>_questions_div > div > hr {
+                border: 0;
+                border-bottom: 1px dashed gray;
+                flex: .9;
+                height: 7px;
+              }
+              #<?=self::_?>_questions_div > div > div > *,
+              #<?=self::_?>_questions_div .extra_div > input[type="text"],
+              #<?=self::_?>_questions_div .extra_div > textarea {
+                width: 100%;
+              }
+              #<?=self::_?>_questions_div .extra_div > textarea {
+                line-height: 1.5;
+                background: linear-gradient(white 1px, transparent 1px) 0 0 / auto 100% content-box, linear-gradient(#CCC 1px, transparent 1px) 0 0 / auto calc(1.5 * 1em) content-box, white;
+                resize: none;
+              }
+              #<?=self::_?>_questions_div .dashicons {
+                color: #ccc;
+                text-align: left;
+                padding-top: 2px;
+                font-size: 26px;
+                width: 36px;
+                height: auto;
+              }
+              #<?=self::_?>_questions_div input[type="text"] {
+                height: 28px;
+              }
+              #<?=self::_?>_add_question_btn {
+                margin: 0 0 20px 36px;
+              }
+            </style>
+            <div id="<?=self::_?>_questions_div">
+              <?php
+              $questions = self::db_get_questions_by_survey($survey_id);
+              $i = 0;
+              foreach ($questions as $question) {
+                self::print_question_html($i, $question, $survey['active']);
+                ++$i;
+              }
+              ?>
+            </div>
+            <?php
+            if (!$survey['active']) {
+              ?>
               <div style="display: none">
                 <?php
                 self::print_question_html('', null, false);
-                ?> 
+                ?>
               </div>
               <p>
                 <button id="<?=self::_?>_add_question_btn" class="button" type="button"><?=__('Frage hinzufügen', 'LL_survey')?></button>
               </p>
-        <?php
-        }
-        ?> 
-              <p class="description">
-                <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
-                <?=sprintf(__('Als Option für Text-Fragen kann ein %s oder einer der vordefinierten Typen %s verwendet werden.', 'LL_survey'), '<code>pattern</code>', '<code>' . self::printable(self::q_special_text_multiline) . ', ' . implode(', ', self::q_special_text_types) . '</code>')?>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="vertical-align: top;"><?php submit_button(__('Änderungen speichern', 'LL_survey'), 'primary', '', false); ?></td>
-          </tr>
-        </table>
-      </form>
-      <script>
-        jQuery(function() {
+              <?php
+            }
+            ?>
+            <p class="description">
+              <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
+              <?=sprintf(__('Als Option für Text-Fragen kann ein %s oder einer der vordefinierten Typen %s verwendet werden.', 'LL_survey'), '<code>pattern</code>', '<code>' . self::printable(self::q_special_text_multiline) . ', ' . implode(', ', self::q_special_text_types) . '</code>')?>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="vertical-align: top;"><?php submit_button(__('Änderungen speichern', 'LL_survey'), 'primary', '', false); ?></td>
+        </tr>
+      </table>
+    </form>
+    <script>
+      jQuery(function() {
 
-          // GENERAL SURVEY
+        // GENERAL SURVEY
 
-          timeout = {};
-          function check_page_exists(tag_id) {
-            var page_input = document.querySelector('#' + tag_id);
-            var response_tag = document.querySelector('#' + tag_id + '_response');
+        timeout = {};
+        function check_page_exists(tag_id) {
+          var page_input = document.querySelector('#' + tag_id);
+          var response_tag = document.querySelector('#' + tag_id + '_response');
+          timeout[tag_id] = null;
+          function check_now() {
             timeout[tag_id] = null;
-            function check_now() {
-              timeout[tag_id] = null;
-              jQuery.getJSON('<?=self::json_url()?>get?find_post=' + page_input.value, function(post) {
-                if (post.id > 0) {
-                  response_tag.innerHTML = '(<a href="' + post.url + '"><?=__('Zur Seite')?></a>)';
-                }
-                else {
-                  response_tag.innerHTML = '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>';
-                }
-              });
-            }
-            function check_later() {
-              if (timeout[tag_id] !== null) {
-                clearTimeout(timeout[tag_id]);
-              }
-              if (page_input.value === '') {
-                response_tag.innerHTML = '';
-                return;
-              }
-              response_tag.innerHTML = '...';
-              timeout[tag_id] = setTimeout(check_now, 1000);
-            }
-            jQuery(page_input).on('input', check_later);
-            if (page_input.value !== '') {
-              check_now();
-            }
-          }
-          check_page_exists('<?=self::_?>_redirect_page');
-
-
-          // QUESTIONS
-
-          var questions_div = document.querySelector('#<?=self::_?>_questions_div');
-          var jq_questions_div = jQuery(questions_div);
-          var template = document.querySelector('#<?=self::_?>_add_question_template');
-          var add_question_btn = document.querySelector('#<?=self::_?>_add_question_btn');
-
-          function make_sortable() {
-            jq_questions_div.sortable({
-              axis: 'y',
-              containment: 'parent',
-              start: function(event, ui) {
-                ui.placeholder.css({
-                  'visibility': '',
-                  'border': '1px dashed gray'
-                });
-              },
-              stop: function() {
-                jq_questions_div.children().each(function(idx, item) {
-                  item.querySelector('[name^="q_order_"]').value = idx;
-                });
-              }
-            });
-            jq_questions_div.disableSelection();
-          }
-
-          function on_select_type_show_hide_extra_div() {
-            var select_type = this;
-            var separator_hr = select_type.parentNode.querySelector('hr');
-            var input_div = select_type.parentNode.querySelector('.input_div');
-            var extra_div = input_div.querySelector('.extra_div');
-            var extra_singleline_input = jQuery(input_div.querySelector('[name^="q_extra_singleline"]'));
-            var extra_multiline_textarea = jQuery(input_div.querySelector('[name^="q_extra_multiline_"]'));
-            var reuse_extra_check = jQuery(input_div.querySelector('[name^="q_reuse_extra_"]'));
-            var in_matrix_check = jQuery(input_div.querySelector('[name^="q_in_matrix_"]'));
-
-            if (select_type.value === '<?=self::q_type_special_delete?>') {
-              separator_hr.style.display = 'none';
-              input_div.style.display = 'none';
-            }
-            else if (select_type.value === '<?=self::q_type_special_separator?>') {
-              separator_hr.style.display = '';
-              input_div.style.display = 'none';
-            }
-            else if (select_type.value === '<?=self::q_type_special_hint?>') {
-              separator_hr.style.display = 'none';
-              input_div.style.display = '';
-              extra_div.style.display = 'none';
-            }
-            else {
-              separator_hr.style.display = 'none';
-              input_div.style.display = '';
-              extra_div.style.display = '';
-              if ([<?=self::js_(self::q_types_with_extra_singleline)?>].includes(select_type.value)) {
-                extra_singleline_input.attr('data-visible', '1');
-                extra_multiline_textarea.attr('data-visible', null);
-                extra_multiline_textarea.val('');
-                extra_singleline_input.each(on_input_text_show_hide_reuse_extra_checkbox);
-              } else {
-                extra_singleline_input.attr('data-visible', null);
-                extra_multiline_textarea.attr('data-visible', '1');
-                extra_singleline_input.val('');
-                extra_multiline_textarea.each(on_input_extra_text_update_rows);
-                extra_multiline_textarea.each(on_input_text_show_hide_reuse_extra_checkbox);
-              }
-              reuse_extra_check.each(on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
-              in_matrix_check.each(on_check_in_matrix_show_hide_reuse_extra_checkbox);
-            }
-          }
-
-          function on_input_extra_text_update_rows() {
-            var textarea_extra = this;
-            textarea_extra.rows = Math.max(1, textarea_extra.value.split("\n").length);
-          }
-
-          function on_input_text_show_hide_reuse_extra_checkbox() {
-            var text_input = this;
-            var reuse_extra_div = text_input.parentNode.querySelector('.reuse_extra_div');
-            if (text_input.value.length === 0) {
-              reuse_extra_div.style.display = '';
-            }
-            else {
-              reuse_extra_div.style.display = 'none';
-              reuse_extra_div.querySelector('input[name^="q_reuse_extra_"]').checked = false;
-              reuse_extra_div.querySelector('input[name^="q_in_matrix_"]').checked = false;
-            }
-          }
-
-          function on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox() {
-            var checkbox_reuse_extra = this;
-            var select_type = checkbox_reuse_extra.parentNode.parentNode.parentNode.parentNode.parentNode.querySelector('[name^="q_type_"]');
-            var extra_singleline = select_type.parentNode.querySelector('[name^="q_extra_singleline_"]');
-            var extra_multiline = select_type.parentNode.querySelector('[name^="q_extra_multiline_"]');
-
-            if (checkbox_reuse_extra.checked) {
-              extra_singleline.style.display = 'none';
-              extra_multiline.style.display = 'none';
-            }
-            else {
-              extra_singleline.style.display = extra_singleline.getAttribute('data-visible') ? '' : 'none';
-              extra_multiline.style.display = extra_multiline.getAttribute('data-visible') ? '' : 'none';
-            }
-
-            var checkbox_in_matrix = select_type.parentNode.querySelector('[name^="q_in_matrix_"]');
-            var label_checkbox_in_matrix = checkbox_in_matrix.parentNode;
-            if (checkbox_reuse_extra.checked && [<?=self::js_(self::q_types_select)?>].includes(select_type.value)) {
-              label_checkbox_in_matrix.style.display = '';
-            }
-            else {
-              label_checkbox_in_matrix.style.display = 'none';
-              checkbox_in_matrix.checked = false;
-            }
-          }
-
-          function on_check_in_matrix_show_hide_reuse_extra_checkbox() {
-            var checkbox_in_matrix = this;
-            var label_checkbox_reuse_extra = checkbox_in_matrix.parentNode.parentNode.querySelector('[name^="q_reuse_extra_"]').parentNode;
-            label_checkbox_reuse_extra.style.display = checkbox_in_matrix.checked ? 'none' : '';
-          }
-
-          jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
-          jQuery(questions_div.querySelectorAll('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
-          jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
-          jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
-          jQuery(questions_div.querySelectorAll('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
-
-          jQuery(add_question_btn).click(function() {
-            var t_clone = template.cloneNode(true);
-            var question_divs = jq_questions_div.children('div');
-            var i = question_divs.length;
-
-            t_clone.id = '';
-            t_clone.querySelector('[name="q_order_"]').value = i;
-            t_clone.querySelector('[name="q_order_"]').name += i;
-            t_clone.querySelector('[name="q_id_"]').name += i;
-            t_clone.querySelector('[name="q_type_"]').name += i;
-            t_clone.querySelector('[name="q_text_"]').name += i;
-            t_clone.querySelector('[name="q_extra_singleline_"]').name += i;
-            t_clone.querySelector('[name="q_extra_multiline_"]').name += i;
-            t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
-            t_clone.querySelector('[name="q_in_matrix_"]').name += i;
-            t_clone.querySelector('[name="q_required_"]').name += i;
-
-            if (i > 0) {
-              var last = question_divs.last()[0];
-              t_clone.querySelector('[name^="q_type_"]').value = last.querySelector('[name^="q_type_"]').value;
-              if (last.querySelector('[name^="q_reuse_extra_"]').checked) {
-                t_clone.querySelector('[name^="q_reuse_extra_"]').checked = true;
-                t_clone.querySelector('[name^="q_in_matrix_"]').checked = last.querySelector('[name^="q_in_matrix_"]').checked;
+            jQuery.getJSON('<?=self::json_url()?>get?find_post=' + page_input.value, function(post) {
+              if (post.id > 0) {
+                response_tag.innerHTML = '(<a href="' + post.url + '"><?=__('Zur Seite')?></a>)';
               }
               else {
-                t_clone.querySelector('[name^="q_extra_singleline_"]').value = last.querySelector('[name^="q_extra_singleline_"]').value;
-                t_clone.querySelector('[name^="q_extra_multiline_"]').value = last.querySelector('[name^="q_extra_multiline_"]').value;
+                response_tag.innerHTML = '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>';
               }
-              t_clone.querySelector('[name^="q_required_"]').checked = last.querySelector('[name^="q_required_"]').checked;
+            });
+          }
+          function check_later() {
+            if (timeout[tag_id] !== null) {
+              clearTimeout(timeout[tag_id]);
             }
+            if (page_input.value === '') {
+              response_tag.innerHTML = '';
+              return;
+            }
+            response_tag.innerHTML = '...';
+            timeout[tag_id] = setTimeout(check_now, 1000);
+          }
+          jQuery(page_input).on('input', check_later);
+          if (page_input.value !== '') {
+            check_now();
+          }
+        }
+        check_page_exists('<?=self::_?>_redirect_page');
 
-            jQuery(t_clone.querySelector('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
-            jQuery(t_clone.querySelector('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
-            jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
-            jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
-            jQuery(t_clone.querySelector('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
 
-            questions_div.appendChild(t_clone);
+        // QUESTIONS
 
-            make_sortable();
+        var questions_div = document.querySelector('#<?=self::_?>_questions_div');
+        var jq_questions_div = jQuery(questions_div);
+        var template = document.querySelector('#<?=self::_?>_add_question_template');
+        var add_question_btn = document.querySelector('#<?=self::_?>_add_question_btn');
+
+        function make_sortable() {
+          jq_questions_div.sortable({
+            axis: 'y',
+            containment: 'parent',
+            start: function(event, ui) {
+              ui.placeholder.css({
+                'visibility': '',
+                'border': '1px dashed gray'
+              });
+            },
+            stop: function() {
+              jq_questions_div.children().each(function(idx, item) {
+                item.querySelector('[name^="q_order_"]').value = idx;
+              });
+            }
           });
+          jq_questions_div.disableSelection();
+        }
+
+        function on_select_type_show_hide_extra_div() {
+          var select_type = this;
+          var separator_hr = select_type.parentNode.querySelector('hr');
+          var input_div = select_type.parentNode.querySelector('.input_div');
+          var extra_div = input_div.querySelector('.extra_div');
+          var extra_singleline_input = jQuery(input_div.querySelector('[name^="q_extra_singleline"]'));
+          var extra_multiline_textarea = jQuery(input_div.querySelector('[name^="q_extra_multiline_"]'));
+          var reuse_extra_check = jQuery(input_div.querySelector('[name^="q_reuse_extra_"]'));
+          var in_matrix_check = jQuery(input_div.querySelector('[name^="q_in_matrix_"]'));
+
+          if (select_type.value === '<?=self::q_type_special_delete?>') {
+            separator_hr.style.display = 'none';
+            input_div.style.display = 'none';
+          }
+          else if (select_type.value === '<?=self::q_type_special_separator?>') {
+            separator_hr.style.display = '';
+            input_div.style.display = 'none';
+          }
+          else if (select_type.value === '<?=self::q_type_special_hint?>') {
+            separator_hr.style.display = 'none';
+            input_div.style.display = '';
+            extra_div.style.display = 'none';
+          }
+          else {
+            separator_hr.style.display = 'none';
+            input_div.style.display = '';
+            extra_div.style.display = '';
+            if ([<?=self::js_(self::q_types_with_extra_singleline)?>].includes(select_type.value)) {
+              extra_singleline_input.attr('data-visible', '1');
+              extra_multiline_textarea.attr('data-visible', null);
+              extra_multiline_textarea.val('');
+              extra_singleline_input.each(on_input_text_show_hide_reuse_extra_checkbox);
+            } else {
+              extra_singleline_input.attr('data-visible', null);
+              extra_multiline_textarea.attr('data-visible', '1');
+              extra_singleline_input.val('');
+              extra_multiline_textarea.each(on_input_extra_text_update_rows);
+              extra_multiline_textarea.each(on_input_text_show_hide_reuse_extra_checkbox);
+            }
+            reuse_extra_check.each(on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
+            in_matrix_check.each(on_check_in_matrix_show_hide_reuse_extra_checkbox);
+          }
+        }
+
+        function on_input_extra_text_update_rows() {
+          var textarea_extra = this;
+          textarea_extra.rows = Math.max(1, textarea_extra.value.split("\n").length);
+        }
+
+        function on_input_text_show_hide_reuse_extra_checkbox() {
+          var text_input = this;
+          var reuse_extra_div = text_input.parentNode.querySelector('.reuse_extra_div');
+          if (text_input.value.length === 0) {
+            reuse_extra_div.style.display = '';
+          }
+          else {
+            reuse_extra_div.style.display = 'none';
+            reuse_extra_div.querySelector('input[name^="q_reuse_extra_"]').checked = false;
+            reuse_extra_div.querySelector('input[name^="q_in_matrix_"]').checked = false;
+          }
+        }
+
+        function on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox() {
+          var checkbox_reuse_extra = this;
+          var select_type = checkbox_reuse_extra.parentNode.parentNode.parentNode.parentNode.parentNode.querySelector('[name^="q_type_"]');
+          var extra_singleline = select_type.parentNode.querySelector('[name^="q_extra_singleline_"]');
+          var extra_multiline = select_type.parentNode.querySelector('[name^="q_extra_multiline_"]');
+
+          if (checkbox_reuse_extra.checked) {
+            extra_singleline.style.display = 'none';
+            extra_multiline.style.display = 'none';
+          }
+          else {
+            extra_singleline.style.display = extra_singleline.getAttribute('data-visible') ? '' : 'none';
+            extra_multiline.style.display = extra_multiline.getAttribute('data-visible') ? '' : 'none';
+          }
+
+          var checkbox_in_matrix = select_type.parentNode.querySelector('[name^="q_in_matrix_"]');
+          var label_checkbox_in_matrix = checkbox_in_matrix.parentNode;
+          if (checkbox_reuse_extra.checked && [<?=self::js_(self::q_types_select)?>].includes(select_type.value)) {
+            label_checkbox_in_matrix.style.display = '';
+          }
+          else {
+            label_checkbox_in_matrix.style.display = 'none';
+            checkbox_in_matrix.checked = false;
+          }
+        }
+
+        function on_check_in_matrix_show_hide_reuse_extra_checkbox() {
+          var checkbox_in_matrix = this;
+          var label_checkbox_reuse_extra = checkbox_in_matrix.parentNode.parentNode.querySelector('[name^="q_reuse_extra_"]').parentNode;
+          label_checkbox_reuse_extra.style.display = checkbox_in_matrix.checked ? 'none' : '';
+        }
+
+        jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
+        jQuery(questions_div.querySelectorAll('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
+        jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
+        jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
+        jQuery(questions_div.querySelectorAll('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
+
+        jQuery(add_question_btn).click(function() {
+          var t_clone = template.cloneNode(true);
+          var question_divs = jq_questions_div.children('div');
+          var i = question_divs.length;
+
+          t_clone.id = '';
+          t_clone.querySelector('[name="q_order_"]').value = i;
+          t_clone.querySelector('[name="q_order_"]').name += i;
+          t_clone.querySelector('[name="q_id_"]').name += i;
+          t_clone.querySelector('[name="q_type_"]').name += i;
+          t_clone.querySelector('[name="q_text_"]').name += i;
+          t_clone.querySelector('[name="q_extra_singleline_"]').name += i;
+          t_clone.querySelector('[name="q_extra_multiline_"]').name += i;
+          t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
+          t_clone.querySelector('[name="q_in_matrix_"]').name += i;
+          t_clone.querySelector('[name="q_required_"]').name += i;
+
+          if (i > 0) {
+            var last = question_divs.last()[0];
+            t_clone.querySelector('[name^="q_type_"]').value = last.querySelector('[name^="q_type_"]').value;
+            if (last.querySelector('[name^="q_reuse_extra_"]').checked) {
+              t_clone.querySelector('[name^="q_reuse_extra_"]').checked = true;
+              t_clone.querySelector('[name^="q_in_matrix_"]').checked = last.querySelector('[name^="q_in_matrix_"]').checked;
+            }
+            else {
+              t_clone.querySelector('[name^="q_extra_singleline_"]').value = last.querySelector('[name^="q_extra_singleline_"]').value;
+              t_clone.querySelector('[name^="q_extra_multiline_"]').value = last.querySelector('[name^="q_extra_multiline_"]').value;
+            }
+            t_clone.querySelector('[name^="q_required_"]').checked = last.querySelector('[name^="q_required_"]').checked;
+          }
+
+          jQuery(t_clone.querySelector('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
+          jQuery(t_clone.querySelector('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
+          jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
+          jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
+          jQuery(t_clone.querySelector('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
+
+          questions_div.appendChild(t_clone);
+
           make_sortable();
         });
-      </script>
+        make_sortable();
+      });
+    </script>
 
-      <hr />
+    <hr />
 
-      <h1><?=__('De-/Aktivieren', 'LL_survey')?></h1>
+    <h1><?=__('De-/Aktivieren', 'LL_survey')?></h1>
 
-      <form method="post" action="admin-post.php">
-        <p>Status: <code><?=$survey['active'] ? __('aktiv', 'LL_survey') : __('inaktiv', 'LL_survey')?></code></p>
-        <p class="description">
-          <?=__('Solange die Umfrage deaktiviert ist, können nur eingeloggte (WP-)Nutzer die Umfrage sehen und testen. Antworten werden nicht gespeichert.', 'LL_survey')?><br />
-          <?=__('In aktiven Umfragen können Fragen nicht mehr neu hinzugefügt und existierende nur noch eingeschränkt bearbeitet werden.', 'LL_survey')?> 
-        </p>
-        <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
-        <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
-        <input type="hidden" name="de_activate" value="<?=$survey['active'] ? '0' : '1'?>" />
-        <?=wp_nonce_field(self::_ . '_survey_de_activate')?> 
-        <?php
-        if ($survey['active']) {
-          submit_button(__('Umfrage deaktivieren und bisherige Antworten löschen', 'LL_survey'), '', 'submit', true, 'onclick="return confirm(\'' . __('Gelöschte Antworten können nicht wiederhergestellt werden.\nUmfrage jetzt wirklich deaktivieren und bisherige Antworten löschen?', 'LL_survey') . '\')"');
-        }
-        else {
-          submit_button(__('Umfrage aktivieren', 'LL_survey'), '');
-        }
-        ?> 
-      </form>
-
-      <hr />
-
-      <h1><?=__('Löschen', 'LL_survey')?></h1>
-
+    <form method="post" action="admin-post.php">
+      <p>Status: <code><?=$survey['active'] ? __('aktiv', 'LL_survey') : __('inaktiv', 'LL_survey')?></code></p>
+      <p class="description">
+        <?=__('Solange die Umfrage deaktiviert ist, können nur eingeloggte (WP-)Nutzer die Umfrage sehen und testen. Antworten werden nicht gespeichert.', 'LL_survey')?><br />
+        <?=__('In aktiven Umfragen können Fragen nicht mehr neu hinzugefügt und existierende nur noch eingeschränkt bearbeitet werden.', 'LL_survey')?>
+      </p>
+      <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
+      <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
+      <input type="hidden" name="de_activate" value="<?=$survey['active'] ? '0' : '1'?>" />
+      <?=wp_nonce_field(self::_ . '_survey_de_activate')?>
       <?php
       if ($survey['active']) {
-        echo '<p class="description">' . __('Die Umfrage kann nicht gelöscht werden solange sie aktiv ist.', 'LL_survey') . '</p>';
+        submit_button(__('Umfrage deaktivieren und bisherige Antworten löschen', 'LL_survey'), '', 'submit', true, 'onclick="return confirm(\'' . __('Gelöschte Antworten können nicht wiederhergestellt werden.\nUmfrage jetzt wirklich deaktivieren und bisherige Antworten löschen?', 'LL_survey') . '\')"');
       }
       else {
-        ?> 
+        submit_button(__('Umfrage aktivieren', 'LL_survey'), '');
+      }
+      ?>
+    </form>
+
+    <hr />
+
+    <h1><?=__('Löschen', 'LL_survey')?></h1>
+
+    <?php
+    if ($survey['active']) {
+      echo '<p class="description">' . __('Die Umfrage kann nicht gelöscht werden solange sie aktiv ist.', 'LL_survey') . '</p>';
+    }
+    else {
+      ?>
       <form method="post" action="admin-post.php">
         <input type="hidden" name="action" value="<?=self::_?>_survey_action" />
-        <?php wp_nonce_field(self::_ . '_survey_delete'); ?> 
+        <?php wp_nonce_field(self::_ . '_survey_delete'); ?>
         <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
         <?php submit_button(__('Umfrage löschen', 'LL_survey'), '', 'submit', true, 'onclick="return confirm(\'' . __('Gelöschte Umfragen können nicht wiederhergestellt werden.\nUmfrage jetzt wirklich endgültig löschen?', 'LL_survey') . '\')"'); ?>
       </form>
-        <?php
-        }
-      } break;
+      <?php
     }
-    ?> 
-    </div>
+  }
+
+  static function admin_display_survey_answers()
+  {
+    $survey_id = $_GET['answers'];
+    $survey = self::db_get_survey_by_id($survey_id);
+    if (empty($survey)) {
+      self::message(sprintf(__('Umfrage <b>%d</b> existiert nicht.', 'LL_survey'), $survey_id));
+      wp_redirect(self::admin_url() . self::admin_page_surveys);
+      exit;
+    }
+
+    ?>
+    <h1><?=__('Umfragen', 'LL_survey')?> &gt; #<?=$survey['id']?> <?=$survey['title']?> &gt; <?=__('Antworten', 'LL_survey')?></h1>
+
     <?php
+    $answers = self::db_get_answers_by_survey($survey_id);
+    if (empty($answers)) {
+      echo '<p>' . __('Keine Antworten bisher.', 'LL_survey') . '</p>';
+      return;
+    }
+    
+    $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
+    $q_ids = ['time'];
+    ?>
+    <style>
+      table.<?=self::_?>_answers {
+      }
+    </style>
+    <table class="<?=self::_?>_answers widefat fixed striped">
+      <tr>
+        <th>Zeit</th>
+      <?php
+      foreach ($questions as &$question) {
+        $q_ids[] = 'q_' . $question['id'];
+        ?>
+        <th><?=$question['text']?></th>
+        <?php
+      }
+      ?>
+      </tr>
+      <?php
+      foreach ($answers as &$answer) {
+        ?>
+        <tr>
+          <?php
+          foreach ($q_ids as $q) {
+            ?>
+            <td><?=$answer[$q]?></td>
+            <?php
+          }
+          ?>
+        </tr>
+        <?php
+      }
+      ?>
+    </table>
+    <?php
+
+    echo '<pre>';
+    var_dump($answers);
+    echo '</pre>';
+
+    echo '<pre>';
+    var_dump($questions);
+    echo '</pre>';
   }
 
   static function admin_page_survey_action()
@@ -1354,6 +1449,19 @@ class LL_survey
     }
 
     ob_start();
+    
+    if ($_GET[self::_ . '_finished'] == $survey_id) {
+      ?>
+      <div class="<?=self::_?>_finished"><?=__('Umfrage abgeschlossen!', 'LL_survey')?></div>
+      <script>
+        url = '/' + window.location.href.substr(window.location.href.indexOf('/', 8) + 1);
+        url = url.replace(/([?&])LL_survey_finished=\d+$/, '');
+        window.history.pushState(null, "", url);
+      </script>
+      <?php
+      return ob_get_clean();
+    }
+
     if ($survey['active'] || is_user_logged_in()) {
       $questions = self::db_get_questions_by_survey($survey_id);
       $questions_by_id = [];
@@ -1694,7 +1802,13 @@ class LL_survey
 
         self::db_add_answer($survey_id, $answers);
       }
-      wp_redirect(get_permalink(get_page_by_path($survey['redirect_page'])));
+      if (!empty($survey['redirect_page'])) {
+        wp_redirect(get_permalink(get_page_by_path($survey['redirect_page'])));
+      }
+      else {
+        wp_redirect(add_query_arg(self::_ . '_finished', $survey_id, wp_get_referer()));
+      }
+      exit;
     }
     return '';
   }
