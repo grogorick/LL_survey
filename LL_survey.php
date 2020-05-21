@@ -215,10 +215,10 @@ class LL_survey
   {
     if (is_null($value))
       return 'NULL';
-    else if (is_array($value) && count($value) == 1 && isset($value[0]))
+    else if (is_array($value))
       return $value[0];
     else
-      return '"' . $value . '"';
+      return '"' . addslashes($value) . '"';
   }
 
   static function _sql_escape_values($values)
@@ -505,6 +505,57 @@ class LL_survey
       return array(
         'id'  => $id,
         'url' => $url);
+    }
+    else if (isset($request['export'])) {
+      $survey_id = $request['survey_id'];
+      $filter_questions = function(&$questions) {
+        foreach ($questions as &$question) {
+          $question = array_filter($question, function(&$q) {
+            return in_array($q, ['id', 'type', 'text', 'extra']);
+          }, ARRAY_FILTER_USE_KEY);
+        }
+      };
+      switch ($request['export']) {
+        case 'json':
+          $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
+          self::prepare_questions($questions);
+          $filter_questions($questions);
+          $answers = self::db_get_answers_by_survey($survey_id);
+          header('Content-type: application/json');
+          header('Content-Disposition: attachment; filename="survey_' . $survey_id . '_' . date('Y-m-d_H-i-s') . '.json"');
+          header('Pragma: no-cache');
+          header('Expires: 0');
+          $file = fopen('php://output', 'w');
+          fputs($file, json_encode(['questions' => $questions, 'answers' => $answers]));
+          break;
+        case 'csv_questions':
+          $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
+          self::prepare_questions($questions, false);
+          $filter_questions($questions);
+          header('Content-type: text/csv');
+          header('Content-Disposition: attachment; filename="survey_' . $survey_id . '_questions_' . date('Y-m-d_H-i-s') . '.csv"');
+          header('Pragma: no-cache');
+          header('Expires: 0');
+          $file = fopen('php://output', 'w');
+          fputcsv($file, array_keys($questions[0]));
+          foreach ($questions as &$question) {
+            fputcsv($file, array_map(function(&$q) { return str_replace(array("\r\n", "\r", "\n"), '\n', $q); }, $question));
+          }
+          break;
+        case 'csv_answers':
+          $answers = self::db_get_answers_by_survey($survey_id);
+          header('Content-type: text/csv');
+          header('Content-Disposition: attachment; filename="survey_' . $survey_id . '_answers_' . date('Y-m-d_H-i-s') . '.csv"');
+          header('Pragma: no-cache');
+          header('Expires: 0');
+          $file = fopen('php://output', 'w');
+          fputcsv($file, array_keys($answers[0]));
+          foreach ($answers as &$answer) {
+            fputcsv($file, array_map(function(&$a) { return str_replace(array("\r\n", "\r", "\n"), '\n', $a); }, $answer));
+          }
+          break;
+      }
+      exit;
     }
   }
 
@@ -1125,6 +1176,8 @@ class LL_survey
     }
 
     $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
+    self::prepare_questions($questions);
+    
     $questions = array_merge([['position' => -1, 'id' => 'time', 'text' => 'Zeit']], $questions);
     usort($questions, function(&$a, &$b) { return $a['position'] - $b['position']; });
     ?>
@@ -1172,7 +1225,27 @@ class LL_survey
             <?php
             foreach ($answers as &$answer) {
               ?>
-              <td><?=$answer[$q_id]?></td>
+              <td>
+                <?php
+                $val = $answer[$q_id];
+                switch ($question['type']) {
+                  case self::q_type_text:
+                    break;
+                  case self::q_type_check:
+                    if ($val) {
+                      $val = $question['extra'][0] ?? 'Ja';
+                    }
+                    else {
+                      $val = $question['extra'][1] ?? 'Nein';
+                    }
+                    break;
+                  case self::q_type_select:
+                  case self::q_type_multiselect:
+                    $val = $question['extra'][$val];
+                }
+                echo $val;
+                ?>
+              </td>
               <?php
             }
             ?>
@@ -1182,14 +1255,21 @@ class LL_survey
         ?>
       </table>
     </div>
+
+    <p>
+      Daten exportieren als
+      <a class="button" target="_blank" href="<?=self::json_url()?>get?survey_id=<?=$survey_id?>&export=json">JSON</a>
+      <a class="button" target="_blank" href="<?=self::json_url()?>get?survey_id=<?=$survey_id?>&export=csv_questions">CSV (Fragen)</a>
+      <a class="button" target="_blank" href="<?=self::json_url()?>get?survey_id=<?=$survey_id?>&export=csv_answers">CSV (Antworten)</a>
+    </p>
     <?php
 
     echo '<pre>';
-    var_dump($answers);
+    var_dump($questions);
     echo '</pre>';
 
     echo '<pre>';
-    var_dump($questions);
+    var_dump($answers);
     echo '</pre>';
   }
 
@@ -1420,30 +1500,53 @@ class LL_survey
   // - in_matrix
   // - required
 
-  static function print_navigation_buttons($max_num_matrix_options, $back, $next, $submit) {
-    ?> 
-    <tr class="<?=self::_?>_next_page">
-      <td colspan="<?=$max_num_matrix_options + 1?>" style="width: 100%;">
-        <?php
-        if ($back) {
-          ?> 
-          <input type="button" class="<?=self::_?>_btn_back" value="<?=__('Zurück', 'LL_survey')?>" />
-          <?php
+  static function print_navigation_buttons($back, $next, $submit) {
+    if ($back) {
+      ?>
+      <input type="button" class="<?=self::_?>_btn_back" value="<?=__('Zurück', 'LL_survey')?>" />
+      <?php
+    }
+    if ($next) {
+      ?>
+      <input type="button" class="<?=self::_?>_btn_next" value="<?=__('Weiter', 'LL_survey')?>" />
+      <?php
+    }
+    if ($submit) {
+      ?>
+      <input type="submit" value="<?=__('Meine Antworten jetzt absenden', 'LL_survey')?>" disabled />
+      <?php
+    }
+  }
+
+  static function prepare_questions(&$questions, $split_extra = true)
+  {
+    $max_matrix_cols = [1];
+    foreach ($questions as $idx => &$question) {
+      $question['is_first_matrix_row'] = !$question['in_matrix'] && count($questions) > ($idx + 1) && $questions[$idx + 1]['in_matrix'];
+      $question['is_last_matrix_row'] = $question['in_matrix'] && count($questions) > ($idx + 1) && !$questions[$idx + 1]['in_matrix'];
+      if ($question['reuse_extra']) {
+        $question['extra'] = $question['indirect_extra'];
+      }
+      if (!is_null($question['extra']) && in_array($question['type'], self::q_types_with_extra_multiline)) {
+        $extra = explode("\n", $question['extra']) ?: [];
+        $max_matrix_cols[count($max_matrix_cols) - 1] = max($max_matrix_cols[count($max_matrix_cols) - 1], count($extra));
+        if ($split_extra) {
+          $question['extra'] = $extra;
         }
-        if ($next) {
-          ?> 
-          <input type="button" class="<?=self::_?>_btn_next" value="<?=__('Weiter', 'LL_survey')?>" />
-          <?php
-        }
-        if ($submit) {
-          ?> 
-          <input type="submit" value="<?=__('Meine Antworten jetzt absenden', 'LL_survey')?>" disabled />
-          <?php
-        }
-        ?> 
-      </td>
-    </tr>
-    <?php
+      }
+      if ($question['type'] === self::q_type_special_separator) {
+        $max_matrix_cols[] = 1;
+      }
+    }
+    foreach ($questions as &$question) {
+      if ($question['type'] === self::q_type_special_separator) {
+        unset($max_matrix_cols[0]);
+        $max_matrix_cols = array_values($max_matrix_cols); // reindex
+      }
+      else if (in_array($question['type'], self::q_types_select)) {
+        $question['max_matrix_cols'] = $max_matrix_cols[0];
+      }
+    }
   }
 
   static function shortcode_SURVEY($atts)
@@ -1489,30 +1592,19 @@ class LL_survey
     }
 
     if ($survey['active'] || is_user_logged_in()) {
-      $questions = self::db_get_questions_by_survey($survey_id);
-      $questions_by_id = [];
-      $max_num_matrix_options = 1;
-      foreach ($questions as $idx => &$question) {
-        $question['is_first_matrix_row'] = !$question['in_matrix'] && count($questions) > ($idx + 1) && $questions[$idx + 1]['in_matrix'];
-        $question['is_last_matrix_row'] = $question['in_matrix'] && count($questions) > ($idx + 1) && !$questions[$idx + 1]['in_matrix'];
-        if (!is_null($question['extra']) && in_array($question['type'], self::q_types_with_extra_multiline)) {
-          $question['extra'] = explode("\n", $question['extra']) ?: [];
-          $max_num_matrix_options = max($max_num_matrix_options, count($question['extra']));
-        }
-        $questions_by_id[$question['id']] = $question;
-      }
+      $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
+      self::prepare_questions($questions);
       ?> 
       <form method="post" action="<?=self::json_url()?>finish">
       <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
       <div class="<?=self::_?>">
       <?php
-      $matrix_input_row_style = '';//style="width: ' . (60 / $max_num_matrix_options) . '%;"';
+      $matrix_input_row_style = '';
       $without_separator = true;
       foreach ($questions as &$question) {
         $tag_id_value = 'q_' . $question['id'];
         $tag_name = 'name="' . $tag_id_value . '"';
         $tag_name_and_id = $tag_name . ' id="' . $tag_id_value . '"';
-        $extra = ($question['reuse_extra'] ? $questions_by_id[$question['reuse_extra']] : $question)['extra'];
         $required = $question['required'] ? 'required' : '';
         $q_class = 'class="' . self::_ . '_question_div ' . self::_ . '_question_' . $question['type'] . ' ' . (($question['in_matrix'] || $question['is_first_matrix_row']) ? self::_ . '_question_matrix' : '') . '"';
         $q_type = 'data-question="' . $question['id'] . '" data-question-type="' . $question['type'] . '"';
@@ -1523,7 +1615,7 @@ class LL_survey
               $without_separator = false;
               $back = false;
             }
-            self::print_navigation_buttons($max_num_matrix_options, $back, true, false);
+            self::print_navigation_buttons($back, true, false);
             ?> 
           </div>
           <div class="<?=self::_?>" style="display: none;">
@@ -1544,20 +1636,20 @@ class LL_survey
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
                 <?php
-                if (in_array($extra, self::q_special_text_types)) {
+                if (in_array($question['extra'], self::q_special_text_types)) {
                   ?> 
-                  <input type="<?=$extra?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required?> />
+                  <input type="<?=$question['extra']?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required?> />
                   <?php
                 }
-                else if (preg_match(self::pattern_multiline[0], $extra)) {
-                  $rows = preg_replace(self::pattern_multiline[0], self::pattern_multiline[1], $extra) ?: '3';
+                else if (preg_match(self::pattern_multiline[0], $question['extra'])) {
+                  $rows = preg_replace(self::pattern_multiline[0], self::pattern_multiline[1], $question['extra']) ?: '3';
                   ?> 
                   <textarea <?=$tag_name_and_id?> rows="<?=$rows?>"></textarea>
                   <?php
                 }
                 else {
                   ?> 
-                  <input type="text" <?=$extra ? 'pattern="' . $extra . '"' : ''?> <?=$tag_name_and_id?> <?=$required?> />
+                  <input type="text" <?=$question['extra'] ? 'pattern="' . $question['extra'] . '"' : ''?> <?=$tag_name_and_id?> <?=$required?> />
                   <?php
                 }
                 ?> 
@@ -1571,7 +1663,7 @@ class LL_survey
             <div <?=$q_class?> <?=$q_type?>>
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
-                <input type="checkbox" <?=$tag_name_and_id?> <?=$required?> /><label for="<?=$tag_id_value?>" data-on="<?=$extra[0] ?? __('Ja', 'LL_mailer')?>" data-off="<?=$extra[1] ?? __('Nein', 'LL_mailer')?>"></label>
+                <input type="checkbox" <?=$tag_name_and_id?> <?=$required?> /><label for="<?=$tag_id_value?>" data-on="<?=$question['extra'][0] ?? __('Ja', 'LL_mailer')?>" data-off="<?=$question['extra'][1] ?? __('Nein', 'LL_mailer')?>"></label>
               </div>
             </div>
             <?php
@@ -1585,7 +1677,7 @@ class LL_survey
               <div class="<?=self::_?>_input_matrix_header_row">
                 <div></div>
                 <?php
-                foreach ($extra as &$option) {
+                foreach ($question['extra'] as &$option) {
                   ?> 
                 <div class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
                   <span><?=$option?></span>
@@ -1600,7 +1692,7 @@ class LL_survey
               <div class="<?=self::_?>_input_matrix_row" <?=$q_type?>>
                 <div class="<?=self::_?>_question"><?=$question['text']?></div>
                 <?php
-                for ($idx = 0; $idx < count($extra); ++$idx) {
+                for ($idx = 0; $idx < count($question['extra']); ++$idx) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?> 
                 <div class="<?=self::_?>_input <?=self::_?>_input_matrix" <?=$matrix_input_row_style?>>
@@ -1616,7 +1708,7 @@ class LL_survey
               <div class="<?=self::_?>_input_matrix_header_row">
                 <div></div>
                 <?php
-                foreach ($extra as &$option) {
+                foreach ($question['extra'] as &$option) {
                   ?> 
                 <div class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
                   <span><?=$option?></span>
@@ -1635,7 +1727,7 @@ class LL_survey
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
               <?php
-              foreach ($extra as $idx => &$option) {
+              foreach ($question['extra'] as $idx => &$option) {
                 $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                 ?> 
                 <div><input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"><?=$option?></label></div>
@@ -1660,7 +1752,7 @@ class LL_survey
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
               <?php
-              foreach ($extra as $idx => &$option) {
+              foreach ($question['extra'] as $idx => &$option) {
                 $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                 $tag_name_and_id_with_idx = 'name="' . $tag_id_value_with_idx . '" id="' . $tag_id_value_with_idx . '"';
                 ?> 
@@ -1675,12 +1767,12 @@ class LL_survey
             break;
         }
       }
-      self::print_navigation_buttons($max_num_matrix_options, !$without_separator, true, false);
+      self::print_navigation_buttons(!$without_separator, true, false);
       ?> 
       </div>
       <div class="<?=self::_?>" style="display: none;">
         <?php
-        self::print_navigation_buttons($max_num_matrix_options, true, false, true);
+        self::print_navigation_buttons(true, false, true);
         ?> 
       </div>
       </form>
