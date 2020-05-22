@@ -1263,14 +1263,14 @@ class LL_survey
       <a class="button" target="_blank" href="<?=self::json_url()?>get?survey_id=<?=$survey_id?>&export=csv_answers">CSV (Antworten)</a>
     </p>
     <?php
-
+/*
     echo '<pre>';
     var_dump($questions);
     echo '</pre>';
 
     echo '<pre>';
     var_dump($answers);
-    echo '</pre>';
+    echo '</pre>';*/
   }
 
   static function admin_page_survey_action()
