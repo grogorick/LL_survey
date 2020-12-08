@@ -169,8 +169,8 @@ class LL_survey
       return is_null($glue_rows) ? [] : '';
     }
     if (is_null($glue_rows)) {
-      array_walk($array, function(&$val, $key) 
-                                use ($glue_key_value, $suffix_if_not_empty, $prefix_if_not_empty) 
+      array_walk($array, function(&$val, $key)
+                                use ($glue_key_value, $suffix_if_not_empty, $prefix_if_not_empty)
                                 { $val = $prefix_if_not_empty . $key . $glue_key_value . $val . $suffix_if_not_empty; });
       return $array;
     }
@@ -583,7 +583,7 @@ class LL_survey
 
   static function admin_page_settings()
   {
-    ?> 
+    ?>
     <div class="wrap">
       <h1><?=__('Allgemeine Einstellungen', 'LL_survey')?></h1>
 
@@ -598,7 +598,7 @@ class LL_survey
             </td>
           </tr>
         </table>
-        <?php submit_button(); ?> 
+        <?php submit_button(); ?>
       </form>
     </div>
     <?php
@@ -615,8 +615,12 @@ class LL_survey
   static function print_question_html($i, $question, $survey_active) {
     $t = $question['type'];
     $disabled = $survey_active ? 'disabled' : '';
-    ?> 
+    ?>
     <div id="<?=is_null($question) ? self::_ . '_add_question_template' : ''?>">
+      <div class="add-question-here">
+        <span class="dashicons dashicons-plus-alt add-question-here-btn" title="<?=__('Frage hier hinzufügen', 'LL_survey')?>"></span>
+        <hr>
+      </div>
       <input type="hidden" name="q_order_<?=$i?>" value="<?=$i?>" />
       <input type="hidden" name="q_id_<?=$i?>" value="<?=$question['id'] ?? ''?>" />
       <span class="dashicons dashicons-sort"></span>
@@ -652,7 +656,7 @@ class LL_survey
     if (isset($_GET['edit'])) $sub_page = 'edit';
     else if (isset($_GET['answers'])) $sub_page = 'answers';
     else $sub_page = 'list';
-    ?> 
+    ?>
     <div class="wrap">
     <?php
     switch ($sub_page) {
@@ -828,7 +832,8 @@ class LL_survey
               #<?=self::_?>_questions_div > div {
                 display: flex;
                 flex-direction: row;
-                margin-bottom: 20px;
+                flex-wrap: wrap;
+                margin-top: 20px;
               }
               #<?=self::_?>_questions_div > div > .input_div {
                 flex: 1;
@@ -862,7 +867,28 @@ class LL_survey
                 height: 28px;
               }
               #<?=self::_?>_add_question_btn {
-                margin: 0 0 20px 36px;
+                margin: 10px 0 20px 36px;
+              }
+
+              #LL_survey_questions_div .add-question-here {
+                flex-basis: 100%;
+                display: flex;
+                margin-top: -18px;
+              }
+              #LL_survey_questions_div .add-question-here > * {
+                visibility: hidden;
+              }
+              #LL_survey_questions_div .add-question-here:hover > * {
+                visibility: visible;
+              }
+              #LL_survey_questions_div .add-question-here .dashicons {
+                margin-top: -5px;
+                cursor: pointer;
+              }
+              #LL_survey_questions_div .add-question-here > hr {
+                border: 0;
+                border-bottom: 1px dashed #ccc;
+                height: 2pt;
               }
             </style>
             <div id="<?=self::_?>_questions_div">
@@ -945,7 +971,13 @@ class LL_survey
         var questions_div = document.querySelector('#<?=self::_?>_questions_div');
         var jq_questions_div = jQuery(questions_div);
         var template = document.querySelector('#<?=self::_?>_add_question_template');
-        var add_question_btn = document.querySelector('#<?=self::_?>_add_question_btn');
+        var add_question_btn = jQuery('#<?=self::_?>_add_question_btn');
+
+        function update_numbering() {
+          jq_questions_div.children().each(function(idx, item) {
+            item.querySelector('[name^="q_order_"]').value = idx;
+          });
+        }
 
         function make_sortable() {
           jq_questions_div.sortable({
@@ -957,18 +989,14 @@ class LL_survey
                 'border': '1px dashed gray'
               });
             },
-            stop: function() {
-              jq_questions_div.children().each(function(idx, item) {
-                item.querySelector('[name^="q_order_"]').value = idx;
-              });
-            }
+            stop: update_numbering
           });
           jq_questions_div.disableSelection();
         }
 
         function on_select_type_show_hide_extra_div() {
           var select_type = this;
-          var separator_hr = select_type.parentNode.querySelector('hr');
+          var separator_hr = select_type.parentNode.querySelector('select+hr');
           var input_div = select_type.parentNode.querySelector('.input_div');
           var extra_div = input_div.querySelector('.extra_div');
           var extra_singleline_input = jQuery(input_div.querySelector('[name^="q_extra_singleline"]'));
@@ -1066,25 +1094,30 @@ class LL_survey
         jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
         jQuery(questions_div.querySelectorAll('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
 
-        jQuery(add_question_btn).click(function() {
+        function add_question() {
           var t_clone = template.cloneNode(true);
           var question_divs = jq_questions_div.children('div');
-          var i = question_divs.length;
+          var n = question_divs.length;
+          var i = n;
+          if (this.id !== 'LL_survey_add_question_btn') {
+            i = parseInt(this.parentNode.nextElementSibling.value);
+          }
 
           t_clone.id = '';
           t_clone.querySelector('[name="q_order_"]').value = i;
-          t_clone.querySelector('[name="q_order_"]').name += i;
-          t_clone.querySelector('[name="q_id_"]').name += i;
-          t_clone.querySelector('[name="q_type_"]').name += i;
-          t_clone.querySelector('[name="q_text_"]').name += i;
-          t_clone.querySelector('[name="q_extra_singleline_"]').name += i;
-          t_clone.querySelector('[name="q_extra_multiline_"]').name += i;
-          t_clone.querySelector('[name="q_reuse_extra_"]').name += i;
-          t_clone.querySelector('[name="q_in_matrix_"]').name += i;
-          t_clone.querySelector('[name="q_required_"]').name += i;
+          t_clone.querySelector('[name="q_order_"]').name += n;
+          t_clone.querySelector('[name="q_id_"]').name += n;
+          t_clone.querySelector('[name="q_type_"]').name += n;
+          t_clone.querySelector('[name="q_text_"]').name += n;
+          t_clone.querySelector('[name="q_extra_singleline_"]').name += n;
+          t_clone.querySelector('[name="q_extra_multiline_"]').name += n;
+          t_clone.querySelector('[name="q_reuse_extra_"]').name += n;
+          t_clone.querySelector('[name="q_in_matrix_"]').name += n;
+          t_clone.querySelector('[name="q_required_"]').name += n;
 
-          if (i > 0) {
-            var last = question_divs.last()[0];
+          if (n > 0) {
+            var last = (i > 0) ? question_divs[i - 1] : question_divs[0];
+
             t_clone.querySelector('[name^="q_type_"]').value = last.querySelector('[name^="q_type_"]').value;
             if (last.querySelector('[name^="q_reuse_extra_"]').checked) {
               t_clone.querySelector('[name^="q_reuse_extra_"]').checked = true;
@@ -1103,10 +1136,18 @@ class LL_survey
           jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
           jQuery(t_clone.querySelector('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
 
-          questions_div.appendChild(t_clone);
-
+          if (i === n) {
+            questions_div.appendChild(t_clone);
+          }
+          else {
+            jq_questions_div.children().eq(i).before(t_clone);
+            update_numbering();
+          }
+          jQuery(t_clone).find('.add-question-here-btn').on('click', add_question);
           make_sortable();
-        });
+        }
+        jQuery('.add-question-here-btn').on('click', add_question);
+        add_question_btn.on('click', add_question);
         make_sortable();
       });
     </script>
@@ -1177,7 +1218,7 @@ class LL_survey
 
     $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
     self::prepare_questions($questions);
-    
+
     $questions = array_merge([['position' => -1, 'id' => 'time', 'text' => 'Zeit']], $questions);
     usort($questions, function(&$a, &$b) { return $a['position'] - $b['position']; });
     ?>
@@ -1578,7 +1619,7 @@ class LL_survey
     }
 
     ob_start();
-    
+
     if ($_GET[self::_ . '_finished'] == $survey_id) {
       ?>
       <div class="<?=self::_?>_finished"><?=__('Umfrage abgeschlossen!', 'LL_survey')?></div>
@@ -1594,7 +1635,7 @@ class LL_survey
     if ($survey['active'] || is_user_logged_in()) {
       $questions = self::db_get_questions_by_survey_with_reuse_extra($survey_id);
       self::prepare_questions($questions);
-      ?> 
+      ?>
       <form method="post" action="<?=self::json_url()?>finish">
       <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
       <div class="<?=self::_?>">
@@ -1616,14 +1657,14 @@ class LL_survey
               $back = false;
             }
             self::print_navigation_buttons($back, true, false);
-            ?> 
+            ?>
           </div>
           <div class="<?=self::_?>" style="display: none;">
             <?php
             break;
 
           case self::q_type_special_hint:
-            ?> 
+            ?>
             <div <?=$q_class?>>
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
             </div>
@@ -1631,35 +1672,35 @@ class LL_survey
             break;
 
           case self::q_type_text:
-            ?> 
+            ?>
             <div <?=$q_class?> <?=$q_type?>>
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
                 <?php
                 if (in_array($question['extra'], self::q_special_text_types)) {
-                  ?> 
+                  ?>
                   <input type="<?=$question['extra']?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required?> />
                   <?php
                 }
                 else if (preg_match(self::pattern_multiline[0], $question['extra'])) {
                   $rows = preg_replace(self::pattern_multiline[0], self::pattern_multiline[1], $question['extra']) ?: '3';
-                  ?> 
+                  ?>
                   <textarea <?=$tag_name_and_id?> rows="<?=$rows?>"></textarea>
                   <?php
                 }
                 else {
-                  ?> 
+                  ?>
                   <input type="text" <?=$question['extra'] ? 'pattern="' . $question['extra'] . '"' : ''?> <?=$tag_name_and_id?> <?=$required?> />
                   <?php
                 }
-                ?> 
+                ?>
               </div>
             </div>
             <?php
             break;
 
           case self::q_type_check:
-            ?> 
+            ?>
             <div <?=$q_class?> <?=$q_type?>>
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
@@ -1672,68 +1713,68 @@ class LL_survey
           case self::q_type_select:
             if ($question['in_matrix'] || $question['is_first_matrix_row']) {
               if ($question['is_first_matrix_row']) {
-              ?> 
+              ?>
             <div <?=$q_class?>>
               <div class="<?=self::_?>_input_matrix_header_row">
                 <div></div>
                 <?php
                 foreach ($question['extra'] as &$option) {
-                  ?> 
+                  ?>
                 <div class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
                   <span><?=$option?></span>
                 </div>
                 <?php
                 }
-              ?> 
+              ?>
               </div>
               <?php
               }
-              ?> 
+              ?>
               <div class="<?=self::_?>_input_matrix_row" <?=$q_type?>>
                 <div class="<?=self::_?>_question"><?=$question['text']?></div>
                 <?php
                 for ($idx = 0; $idx < count($question['extra']); ++$idx) {
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
-                  ?> 
+                  ?>
                 <div class="<?=self::_?>_input <?=self::_?>_input_matrix" <?=$matrix_input_row_style?>>
                   <input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"></label>
                 </div>
                 <?php
               }
-              ?> 
+              ?>
               </div>
               <?php
               if ($question['is_last_matrix_row']) {
-                ?> 
+                ?>
               <div class="<?=self::_?>_input_matrix_header_row">
                 <div></div>
                 <?php
                 foreach ($question['extra'] as &$option) {
-                  ?> 
+                  ?>
                 <div class="<?=self::_?>_input_matrix_header" <?=$matrix_input_row_style?>>
                   <span><?=$option?></span>
                 </div>
                 <?php
                 }
-              ?> 
+              ?>
               </div>
             </div>
                 <?php
               }
             }
             else {
-              ?> 
+              ?>
             <div <?=$q_class?> <?=$q_type?>>
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
               <?php
               foreach ($question['extra'] as $idx => &$option) {
                 $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
-                ?> 
+                ?>
                 <div><input type="radio" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"><?=$option?></label></div>
                 <?php
               }
-              ?> 
+              ?>
               </div>
             </div>
               <?php
@@ -1742,12 +1783,12 @@ class LL_survey
 
           case self::q_type_multiselect:
             if ($question['in_matrix'] || $question['is_first_matrix_row']) {
-              ?> 
+              ?>
               <?=$question['text']?> (noch nicht verfügbar)
               <?php
             }
             else {
-              ?> 
+              ?>
             <div <?=$q_class?> <?=$q_type?>>
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input">
@@ -1755,11 +1796,11 @@ class LL_survey
               foreach ($question['extra'] as $idx => &$option) {
                 $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                 $tag_name_and_id_with_idx = 'name="' . $tag_id_value_with_idx . '" id="' . $tag_id_value_with_idx . '"';
-                ?> 
+                ?>
                 <div><input type="checkbox" <?=$tag_name_and_id_with_idx?> <?=$question['required'] ? 'data-multi-required="true"' : ''?> /><label for="<?=$tag_id_value_with_idx?>"><?=$option?></label></div>
                 <?php
               }
-              ?> 
+              ?>
               </div>
             </div>
               <?php
@@ -1768,12 +1809,12 @@ class LL_survey
         }
       }
       self::print_navigation_buttons(!$without_separator, true, false);
-      ?> 
+      ?>
       </div>
       <div class="<?=self::_?>" style="display: none;">
         <?php
         self::print_navigation_buttons(true, false, true);
-        ?> 
+        ?>
       </div>
       </form>
       <script>
