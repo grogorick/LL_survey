@@ -1733,11 +1733,12 @@ class LL_survey
           case self::q_type_multiselect:
             if ($question['type'] === self::q_type_select) {
               $input_type = 'radio';
+              $required_tmp = $required;
             }
             else {/* self::q_type_multiselect */
               $input_type = 'checkbox';
               $tag_name = 'name="' . $tag_id_value . '[]"';
-              $required = $required ? 'data-multi-required="true"' : '';
+              $required_tmp = $required ? 'data-multi-required="true"' : '';
             }
             if ($question['in_matrix'] || $question['is_first_matrix_row']) {
               if ($question['is_first_matrix_row']) {
@@ -1762,7 +1763,7 @@ class LL_survey
                   $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                   ?> 
                 <div class="<?=self::_?>_input" <?=$matrix_input_row_style?>>
-                  <input type="<?=$input_type?>" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"></label>
+                  <input type="<?=$input_type?>" <?=$tag_name?> value="<?=$idx?>" id="<?=$tag_id_value_with_idx?>" <?=$required_tmp?> /><label for="<?=$tag_id_value_with_idx?>"></label>
                 </div><?php
                 }
                 ?> 
@@ -1792,7 +1793,7 @@ class LL_survey
               foreach ($question['extra'] as $idx => &$option) {
                 $tag_id_value_with_idx = $tag_id_value . '_' . $idx;
                 ?> 
-                <div><input type="<?=$input_type?>" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" value="<?=$idx?>" <?=$required?> /><label for="<?=$tag_id_value_with_idx?>"><div><?=$option?></div></label></div><?php
+                <div><input type="<?=$input_type?>" <?=$tag_name?> id="<?=$tag_id_value_with_idx?>" value="<?=$idx?>" <?=$required_tmp?> /><label for="<?=$tag_id_value_with_idx?>"><div><?=$option?></div></label></div><?php
               }
               ?> 
               </div>
