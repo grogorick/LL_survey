@@ -81,6 +81,7 @@ class LL_survey
 
 	static function db_($table) { global $wpdb; return $wpdb->prefix . $table; }
 	static function js_($array) { return "'" . implode("', '", $array) . "'"; }
+	static function html_($val) { return htmlentities($val, ENT_QUOTES, 'UTF-8'); }
 
   static function pluginPath() { return plugin_dir_path(__FILE__); }
   static function admin_url() { return get_admin_url() . 'admin.php?page='; }
@@ -221,6 +222,18 @@ class LL_survey
       return '"' . addslashes($value) . '"';
   }
 
+  static function unescape_value($value)
+  {
+    return is_null($value) ? null : stripslashes($value);
+  }
+
+  static function unescape_values($values)
+  {
+    return array_map(function($val) {
+      return self::unescape_value($val);
+    }, $values);
+  }
+
   static function _sql_escape_values($values)
   {
     return array_map(function($val) {
@@ -359,6 +372,7 @@ class LL_survey
   {
     global $wpdb;
     $result = $wpdb->get_results(self::_db_build_select($tables, $what, $where, $groupby, $orderby), ARRAY_A);
+    array_walk($result, function(&$row) { array_walk($row, function(&$val) { $val = self::unescape_value($val); }); });
     if ($wpdb->last_error) self::message('<i>(_db_select)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
     return $result;
   }
@@ -367,6 +381,7 @@ class LL_survey
   {
     global $wpdb;
     $result = $wpdb->get_row(self::_db_build_select($tables, $what, $where, $groupby, $orderby), ARRAY_A);
+    array_walk($result, function(&$val) { $val = self::unescape_value($val); });
     if ($wpdb->last_error) self::message('<i>(_db_select_row)</i><hr />' . $wpdb->last_error . '<hr />' . $wpdb->last_query);
     return $result;
   }
@@ -636,10 +651,10 @@ class LL_survey
       </select>
       <hr style="display: none;" />
       <div class="input_div" style="display: none;">
-        <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=$question['text'] ?? ''?>" />
+        <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=self::html_($question['text']) ?? ''?>" />
         <div class="extra_div">
-          <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=$question['extra'] ?? ''?>" />
-          <textarea name="q_extra_multiline_<?=$i?>" rows="1" placeholder="<?=__('Option 1...')?>"><?=$question['extra'] ?? ''?></textarea>
+          <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=self::html_($question['extra']) ?? ''?>" />
+          <textarea name="q_extra_multiline_<?=$i?>" rows="1" placeholder="<?=__('Option 1...')?>"><?=self::html_($question['extra']) ?? ''?></textarea>
           <div class="reuse_extra_div">
             <label style="display: inline-block; margin-right: 20px;"><input type="checkbox" name="q_reuse_extra_<?=$i?>"<?=is_null($question['reuse_extra']) ? '' : ' checked'?> /> <?=__('Dieselben Optionen wie darüber', 'LL_survey')?></label>
             <label style="display: inline-block;"><input type="checkbox" name="q_in_matrix_<?=$i?>"<?=$question['in_matrix'] ? ' checked' : ''?> /> <?=__('Zusammen mit der Frage darüber als Matrix anzeigen', 'LL_survey')?></label>
