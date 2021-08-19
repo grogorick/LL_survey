@@ -69,7 +69,6 @@ class LL_survey
   const q_special_text_multiline = 'multiline';
   const q_special_text_types = ['number', 'date', 'time', 'datetime-local', 'email', 'url'];
 
-  const pattern_multiline = ['/^' . self::q_special_text_multiline . '(\s+(\d+))?$/', '$2'];
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
@@ -932,7 +931,7 @@ class LL_survey
             ?>
             <p class="description">
               <?=sprintf(__('Ziehe %s hoch/runter um die Fragen zu sortieren.', 'LL_survey'), '<span class="dashicons dashicons-sort" style="color: #ccc;"></span>')?><br />
-              <?=sprintf(__('Als Option für Text-Fragen kann ein %s oder einer der vordefinierten Typen %s verwendet werden.', 'LL_survey'), '<code>pattern</code>', '<code>' . self::printable(self::q_special_text_multiline) . ', ' . implode(', ', self::q_special_text_types) . '</code>')?>
+              <?=sprintf(__('Als Option für Text-Fragen kann einer der vordefinierten Typen %s verwendet werden. Zusätzliche HTML-Input-Attribute können danach mit Komma getrennt in der Form %s angegeben werden.', 'LL_survey'), '<code>' . implode(', ', self::q_special_text_types) . '</code> oder <code>' . self::printable(self::q_special_text_multiline) . '</code>', '<code>ATTRIBUT "WERT"</code>')?>
             </p>
           </td>
         </tr>
@@ -1688,22 +1687,30 @@ class LL_survey
             break;
 
           case self::q_type_text:
+            preg_match_all('/([\w-]+)(\s+("([^"]+)"|(\S+)))?(\s*,\s+|\s*$)/', $question['extra'], $extras, PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL);
+            $extras = array_map(function(&$match) { return [$match[1], $match[4] ?? $match[5]]; }, $extras);
+            $extra_tags = array_map(function(&$extra) { return $extra[0] . ((!is_null($extra[1])) ? '="' . $extra[1] . '"' : ''); }, $extras);
             ?> 
             <div <?=$q_class?> <?=$q_type?>>
               <div class="<?=self::_?>_question"><?=$question['text']?></div>
               <div class="<?=self::_?>_input"><?php
-                if (in_array($question['extra'], self::q_special_text_types)) {
+                if (in_array($extras[0][0], self::q_special_text_types)) {
+                  unset($extra_tags[0]);
+                  if ($extras[0][0] === 'url' && empty(array_filter($extras, function($e) { return strtolower($e[0]) === 'value'; }))) {
+                    $extra_tags[] = 'value="https://"';
+                  }
                   ?> 
-                <input type="<?=$question['extra']?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required?> /><?php
+                <input type="<?=$extras[0][0]?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required . ' ' . implode(' ', $extra_tags)?> /><?php
                 }
-                else if (preg_match(self::pattern_multiline[0], $question['extra'])) {
-                  $rows = preg_replace(self::pattern_multiline[0], self::pattern_multiline[1], $question['extra']) ?: '3';
+                else if ($extras[0][0] === self::q_special_text_multiline) {
+                  $rows = $extras[0][1] ?: '3';
+                  unset($extra_tags[0]);
                   ?> 
-                <textarea <?=$tag_name_and_id?> rows="<?=$rows?>" <?=$required?>></textarea><?php
+                <textarea <?=$tag_name_and_id?> rows="<?=$rows?>" <?=$required . ' ' . implode(' ', $extra_tags)?>></textarea><?php
                 }
                 else {
                   ?> 
-                <input type="text" <?=$question['extra'] ? 'pattern="' . $question['extra'] . '"' : ''?> <?=$tag_name_and_id?> <?=$required?> /><?php
+                <input type="text" <?=$tag_name_and_id?> <?=$required . ' ' . implode(' ', $extra_tags)?> /><?php
                 }
                 ?> 
               </div>
