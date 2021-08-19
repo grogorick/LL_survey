@@ -1816,6 +1816,13 @@ class LL_survey
         jQuery(function() {
           var form = document.querySelector('.<?=self::_?>').closest('form');
           var submit_button = form.querySelector('input[type="submit"]');
+          document.querySelectorAll('.<?=self::_?> input[type="url"]').forEach(function (input) {
+            input.addEventListener('change', function(e) {
+              if (!input.value.match(/^https?:\/\/.+/)) {
+                input.value = 'https://' + input.value;
+              }
+            });
+          });
           jQuery('.<?=self::_?>_btn_back').click(function() {
             var current_table = this.closest('.<?=self::_?>');
             var next_table = current_table.previousElementSibling;
