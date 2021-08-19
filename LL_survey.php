@@ -1246,12 +1246,21 @@ class LL_survey
       .<?=self::_?>_answers table {
         width: auto;
         min-width: 100%;
+        border-top: none;
         border-left: none;
+        border-right: none;
+      }
+      .<?=self::_?>_answers table th,
+      .<?=self::_?>_answers table td {
+        vertical-align: top;
       }
       .<?=self::_?>_answers tr:first-child td {
         white-space: nowrap;
         word-wrap: normal;
         word-break: normal;
+      }
+      .<?=self::_?>_answers td:last-child {
+        border-right: 1px solid #c3c4c7;
       }
       .<?=self::_?>_answers th {
         min-width: 100pt;
@@ -1265,20 +1274,41 @@ class LL_survey
       .<?=self::_?>_answers tr:nth-child(odd) th {
         background: #f9f9f9;
       }
+      .<?=self::_?>_answers .special-question > * {
+        background: #f0f0f1 !important;
+        border-top: 1px solid #c3c4c7;
+        border-bottom: 1px solid #c3c4c7;
+        border-left: none !important;
+        border-right: none !important;
+        height: 30pt;
+      }
+      .<?=self::_?>_answers .special-question > * > div {
+        position: absolute;
+      }
     </style>
     <div class="<?=self::_?>_answers">
       <table class="widefat fixed striped">
         <?php
+        $colspan = count($answers) + 1;
         foreach ($questions as &$question) {
           $q_id = $question['id'];
           if ($q_id !== 'time') {
             $q_id = 'q_' . $q_id;
           }
+          $is_special = in_array($question['type'], self::q_types_special);
           ?>
-          <tr>
-            <th><?=$question['text']?></th>
+          <tr <?=($is_special || $q_id === 'time') ? 'class="special-question"' : ''?>>
             <?php
-            foreach ($answers as &$answer) {
+            if ($is_special) {
+              ?>
+              <td colspan="<?=$colspan?>"><div><?=$question['text']?></div></td>
+              <?php
+            }
+            else {
+              ?>
+              <th><?=$question['text']?></th>
+              <?php
+              foreach ($answers as &$answer) {
               ?>
               <td>
                 <?php
@@ -1301,10 +1331,11 @@ class LL_survey
                   default:
                     break;
                 }
-                echo $val;
+                echo nl2br($val);
                 ?>
               </td>
               <?php
+              }
             }
             ?>
           </tr>
