@@ -1838,13 +1838,6 @@ class LL_survey
                       i.required = true;
                     });
                     input.reportValidity();
-                    var multiInvalidClick = function() {
-                      inputs.forEach(function(i) {
-                        i.removeEventListener('change', multiInvalidClick);
-                        i.required = false;
-                      });
-                    };
-                    inputs.forEach(function(i) { i.addEventListener('change', multiInvalidClick); });
                   }
                 }
                 else {
@@ -1858,13 +1851,16 @@ class LL_survey
                 submit_button.disabled = !next_table.querySelector('input[type="submit"]');
                 jQuery(next_table).fadeIn(200);
                 jQuery('html, body').animate({ scrollTop: jQuery('h1').offset().top }, 'slow');
-
-                window.addEventListener('beforeunload', function (e) {
-                  e.preventDefault();
-                  e.returnValue = '';
-                });
               });
             }
+          });
+          var leaveEL = function (e) {
+            e.preventDefault();
+            e.returnValue = null;
+          };
+          window.addEventListener('beforeunload', leaveEL);
+          form.addEventListener('submit', function (e) {
+            window.removeEventListener('beforeunload', leaveEL);
           });
         });
       </script><?php
