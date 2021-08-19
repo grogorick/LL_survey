@@ -1172,6 +1172,13 @@ class LL_survey
 
     <form method="post" action="admin-post.php">
       <p>Status: <code><?=$survey['active'] ? __('aktiv', 'LL_survey') : __('inaktiv', 'LL_survey')?></code></p>
+      <?php
+      if ($survey['active']) {
+        ?>
+          <p>(Zu den <a href="<?=self::admin_url() . self::admin_page_survey_answers . $survey['id']?>">Antworten</a>)</p>
+        <?php
+      }
+      ?>
       <p class="description">
         <?=__('Solange die Umfrage deaktiviert ist, können nur eingeloggte (WP-)Nutzer die Umfrage sehen und testen. Antworten werden nicht gespeichert.', 'LL_survey')?><br />
         <?=__('In aktiven Umfragen können Fragen nicht mehr neu hinzugefügt und existierende nur noch eingeschränkt bearbeitet werden.', 'LL_survey')?>
@@ -1221,7 +1228,7 @@ class LL_survey
     }
 
     ?>
-    <h1><?=__('Umfragen', 'LL_survey')?> &gt; #<?=$survey['id']?> <?=$survey['title']?> &gt; <?=__('Antworten', 'LL_survey')?></h1>
+    <h1><?=__('Umfragen', 'LL_survey')?> &gt; <a href="<?=self::admin_url() . self::admin_page_survey_edit . $survey['id']?>">#<?=$survey['id']?> <?=$survey['title']?></a> &gt; <?=__('Antworten', 'LL_survey')?></h1>
 
     <?php
     $answers = self::db_get_answers_by_survey($survey_id);
@@ -1614,7 +1621,7 @@ class LL_survey
         $question['extra'] = $question['indirect_extra'];
       }
       if (!is_null($question['extra']) && in_array($question['type'], self::q_types_with_extra_multiline)) {
-        $extra = explode("\n", $question['extra']) ?: [];
+        $extra = preg_split('/\R+/', $question['extra'], 0, PREG_SPLIT_NO_EMPTY) ?: [];
         $max_matrix_cols[count($max_matrix_cols) - 1] = max($max_matrix_cols[count($max_matrix_cols) - 1], count($extra));
         if ($split_extra) {
           $question['extra'] = $extra;
