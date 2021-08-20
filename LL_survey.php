@@ -1607,7 +1607,7 @@ class LL_survey
     }
     if ($submit) {
       ?> 
-            <input type="submit" value="<?=__('Meine Antworten jetzt absenden', 'LL_survey')?>" disabled /><?php
+            <input type="submit" value="<?=__('Meine Antworten jetzt absenden', 'LL_survey')?>" <?=$back ? 'disabled' : ''?> /><?php
     }
   }
 
@@ -1689,7 +1689,7 @@ class LL_survey
       usort($questions, function(&$l, &$r) { return $l['position'] - $r['position']; });
       self::prepare_questions($questions);
       ?> 
-        <form method="post" action="<?=self::json_url()?>finish">
+        <form method="post" action="<?=self::json_url()?>finish" class="<?=self::_?>_form">
           <input type="hidden" name="survey_id" value="<?=$survey_id?>" />
           <div class="<?=self::_?>">
       <?php
@@ -1734,9 +1734,6 @@ class LL_survey
               <div class="<?=self::_?>_input"><?php
                 if (in_array($extras[0][0], self::q_special_text_types)) {
                   unset($extra_tags[0]);
-                  if ($extras[0][0] === 'url' && empty(array_filter($extras, function($e) { return strtolower($e[0]) === 'value'; }))) {
-                    $extra_tags[] = 'value="https://"';
-                  }
                   ?> 
                 <input type="<?=$extras[0][0]?>" <?=$tag_name_and_id?> class="text-input-field" <?=$required . ' ' . implode(' ', $extra_tags)?> /><?php
                 }
@@ -1841,42 +1838,36 @@ class LL_survey
             break;
         }
       }
-      self::print_navigation_buttons(!$without_separator, true, false);
-      ?> 
-          </div>
-          <div class="<?=self::_?>" style="display: none;">
-      <?php
-      self::print_navigation_buttons(true, false, true);
+      self::print_navigation_buttons(!$without_separator, false, true);
       ?> 
           </div>
         </form>
       <script>
         jQuery(function() {
-          var form = document.querySelector('.<?=self::_?>').closest('form');
-          var submit_button = form.querySelector('input[type="submit"]');
+          let form = document.querySelector('.<?=self::_?>').closest('form');
+          let submit_button = form.querySelector('input[type="submit"]');
           document.querySelectorAll('.<?=self::_?> input[type="url"]').forEach(function (input) {
             input.addEventListener('change', function(e) {
-              if (!input.value.match(/^https?:\/\/.+/)) {
+              if (input.value.length && !input.value.match(/^https?:\/\/.+/)) {
                 input.value = 'https://' + input.value;
               }
             });
           });
           jQuery('.<?=self::_?>_btn_back').click(function() {
-            var current_table = this.closest('.<?=self::_?>');
-            var next_table = current_table.previousElementSibling;
+            let current_table = this.closest('.<?=self::_?>');
+            let next_table = current_table.previousElementSibling;
             jQuery(current_table).fadeOut(200, function () {
               submit_button.disabled = true;
               jQuery(next_table).fadeIn(200);
               jQuery('html, body').animate({ scrollTop: jQuery(next_table.querySelector('.<?=self::_?>_btn_next')).offset().top }, 'slow');
             });
           });
-          jQuery('.<?=self::_?>_btn_next').click(function() {
-            var current_table = this.closest('.<?=self::_?>');
-            var valid = true;
+          function validate_input(current_table) {
+            let valid = true;
             current_table.querySelectorAll('[data-question]').forEach(function(question_tag) {
               if (valid) {
-                var input = null;
-                var inputs = null;
+                let input = null;
+                let inputs = null;
                 switch (question_tag.getAttribute('data-question-type')) {
                   case '<?=self::q_type_text?>':
                     input = question_tag.querySelector('input,textarea');
@@ -1887,25 +1878,27 @@ class LL_survey
                   case '<?=self::q_type_select?>':
                   case '<?=self::q_type_multiselect?>':
                     inputs = question_tag.querySelectorAll('input'); // ich liebe dich
-                    if (question_tag.closest('.<?=self::_?>_question_div').className.split(/\s/).indexOf("<?=self::_?>_question_matrix") !== -1) {
-                      input = inputs[Math.ceil(inputs.length / 2) - 1];
-                    }
-                    else {
-                      input = inputs[inputs.length - 1];
-                    }
+                    input = inputs[Math.ceil(inputs.length / 2) - 1];
                     break;
                 }
-                if (input.getAttribute('data-multi-required') !== null) {
-                  var multi_valid = false;
+                if (input.hasAttribute('data-multi-required')) {
+                  let multi_valid = false;
                   inputs.forEach(function(i) {
                     multi_valid |= i.checked;
                   });
                   if (!multi_valid) {
                     valid = false;
-                    inputs.forEach(function(i) {
-                      i.required = true;
-                    });
+                    input.required = true;
                     input.reportValidity();
+
+                    if (!input.hasAttribute('data-multi-required-listener')) {
+                      input.setAttribute('data-multi-required-listener', true);
+                      inputs.forEach(function(i) {
+                        i.addEventListener('change', function() {
+                          input.required = false;
+                        });
+                      });
+                    }
                   }
                 }
                 else {
@@ -1913,8 +1906,12 @@ class LL_survey
                 }
               }
             });
-            if (valid) {
-              var next_table = current_table.nextElementSibling;
+            return valid;
+          }
+          jQuery('.<?=self::_?>_btn_next').click(function() {
+            let current_table = this.closest('.<?=self::_?>');
+            if (validate_input(current_table)) {
+              let next_table = current_table.nextElementSibling;
               jQuery(current_table).fadeOut(200, function () {
                 submit_button.disabled = !next_table.querySelector('input[type="submit"]');
                 jQuery(next_table).fadeIn(200);
@@ -1922,7 +1919,10 @@ class LL_survey
               });
             }
           });
-          var leaveEL = function (e) {
+          jQuery('.<?=self::_?>_form').submit(function() {
+            return validate_input(submit_button.closest('.<?=self::_?>'));
+          });
+          let leaveEL = function (e) {
             e.preventDefault();
             e.returnValue = null;
           };
