@@ -650,6 +650,7 @@ class LL_survey
       </select>
       <hr style="display: none;" />
       <div class="input_div" style="display: none;">
+        <button type="button" class="bth_select_img dashicons dashicons-format-image"></button>
         <input type="text" name="q_text_<?=$i?>" placeholder="<?=__('Was willst du wissen?')?>" value="<?=self::html_($question['text']) ?? ''?>" />
         <div class="extra_div">
           <input type="text" name="q_extra_singleline_<?=$i?>" placeholder="<?=__('Option')?>" value="<?=self::html_($question['extra']) ?? ''?>" />
@@ -794,6 +795,7 @@ class LL_survey
       wp_redirect(self::admin_url() . self::admin_page_surveys);
       exit;
     }
+    wp_enqueue_media();
     ?>
     <h1><?=__('Umfragen', 'LL_survey')?> &gt; #<?=$survey['id']?> <?=$survey['title']?></h1>
 
@@ -852,6 +854,16 @@ class LL_survey
               #<?=self::_?>_questions_div > div > .input_div {
                 flex: 1;
                 display: inline-block;
+                position: relative;
+              }
+              #<?=self::_?>_questions_div > div > .input_div .bth_select_img {
+                position: absolute;
+                right: 0;
+                margin-right: -1px;
+                font-size: 20px;
+                padding: 3px;
+                width: auto;
+                color: #666;
               }
               #<?=self::_?>_questions_div > div > hr {
                 border: 0;
@@ -1102,11 +1114,59 @@ class LL_survey
           label_checkbox_reuse_extra.style.display = checkbox_in_matrix.checked ? 'none' : '';
         }
 
+        // media selection (https://wordpress.stackexchange.com/a/363944)
+        function select_image_from_media_gallery(callback) {
+          let image_frame;
+          if(image_frame){
+            image_frame.open();
+            return;
+          }
+
+          image_frame = wp.media({
+            title: 'Bild auswählen',
+            multiple: false,
+            library: { type: 'image' }
+          });
+          /*image_frame.on('open',function() {
+            const selection =  image_frame.state().get('selection');
+            current_selection_ids.forEach(function(id) {
+              const attachment = wp.media.attachment(id);
+              attachment.fetch();
+              selection.add( attachment ? [ attachment ] : [] );
+            });
+          });*/
+          image_frame.on('close',function() {
+            const selection =  image_frame.state().get('selection');
+            const files = [];
+            selection.each(function(attachment) {
+              files.push({
+                id: attachment.attributes.id,
+                filename: attachment.attributes.filename,
+                url: attachment.attributes.url,
+                type: attachment.attributes.type,
+                subtype: attachment.attributes.subtype,
+                sizes: attachment.attributes.sizes,
+              });
+            });
+            callback(files);
+          });
+          image_frame.open();
+        }
+        function on_click_add_image(e) {
+          select_image_from_media_gallery(function(data) {
+            if (data.length) {
+              let input = e.target.nextElementSibling;
+              input.value = input.value.substr(0, input.selectionStart) + '<img src="' + data[0].url + '" />' + input.value.substr(input.selectionStart);
+            }
+          });
+        }
+
         jQuery(questions_div.querySelectorAll('[name^="q_type_"]')).on('change', on_select_type_show_hide_extra_div).each(on_select_type_show_hide_extra_div);
         jQuery(questions_div.querySelectorAll('[name^="q_extra_multiline_"]')).on('input', on_input_extra_text_update_rows);
         jQuery(questions_div.querySelectorAll('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
         jQuery(questions_div.querySelectorAll('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
         jQuery(questions_div.querySelectorAll('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
+        jQuery(questions_div.querySelectorAll('.bth_select_img')).on('click', on_click_add_image);
 
         function add_question() {
           var t_clone = template.cloneNode(true);
@@ -1149,6 +1209,7 @@ class LL_survey
           jQuery(t_clone.querySelector('[name^="q_extra_"]')).on('input', on_input_text_show_hide_reuse_extra_checkbox);
           jQuery(t_clone.querySelector('[name^="q_reuse_extra_"]')).on('change', on_check_reuse_extra_show_hide_extra_textbox_and_in_matrix_checkbox);
           jQuery(t_clone.querySelector('[name^="q_in_matrix_"]')).on('change', on_check_in_matrix_show_hide_reuse_extra_checkbox);
+          jQuery(t_clone.querySelector('.bth_select_img')).on('click', on_click_add_image);
 
           if (i === n) {
             questions_div.appendChild(t_clone);
