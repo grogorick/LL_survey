@@ -2038,10 +2038,10 @@ class LL_survey
             $answers[$q_id] = isset($request[$q_id]);
             break;
           case self::q_type_multiselect:
-            $answers[$q_id] = implode(',', $request[$q_id] ?? []);
+            $answers[$q_id] = implode(',', array_map(function($a) { return intval($a); }, $request[$q_id] ?? []));
             break;
           default:
-            $answers[$q_id] = $request[$q_id];
+            $answers[$q_id] = strip_tags($request[$q_id]);
         }
       }
       if ($survey['active']) {
