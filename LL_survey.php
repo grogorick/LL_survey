@@ -1369,12 +1369,12 @@ class LL_survey
             <?php
             if ($is_special) {
               ?>
-              <td colspan="<?=$colspan?>"><div><?=$question['text']?></div></td>
+              <td colspan="<?=$colspan?>"><div><?=strip_tags($question['text'])?></div></td>
               <?php
             }
             else {
               ?>
-              <th><?=$question['text']?></th>
+              <th><?=strip_tags($question['text'])?></th>
               <?php
               foreach ($answers as &$answer) {
               ?>
